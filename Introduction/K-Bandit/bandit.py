@@ -4,36 +4,30 @@ inspired by https://www.dominodatalab.com/blog/k-armed-bandit-problem
 '''
 import numpy as np
 
-class BernoulliBandit:
-    '''this class provide a simulation for a bandit with probability p and binomial distribution'''
-
-    def __init__(self, p, verbose=True):
-        self.p = p
-        if verbose:
-            print("Creating BernoulliBandit with p = {:.2f}".format(p))
-
-    def pull(self):
-        return np.random.binomial(1, self.p)
-
 
 class BanditsGame:
+    ''' this class provide an environment for an agent to be exposed to the k-bandit problem'''
+    def __init__(self, k, timestep, agent, verbose=True):
 
-    def __init__(self, K, T, agent, verbose=True):
-
-        self.T = T
-        self.K = K
+        self.timestep = timestep
         self.agent = agent
-        self.bandits = [BernoulliBandit(np.random.uniform(), verbose) for i in range(K)]
+        self.bandits = np.random.uniform(0, 1, k)
         self.verbose = verbose
 
+    def pull(self, bandit):
+        ''' give a 1 or 0 according to the probability of one of the bandit'''
+        return np.random.binomial(1, self.bandits[bandit])
+
     def run(self):
+        ''' run the full simulation'''
 
-        results = np.zeros((self.T))
+        results = np.zeros(self.timestep)
 
-        for t in range(self.T):
-            k = self.agent.choose()
-            results[t] = self.bandits[k].pull()
+        for i in range(self.timestep):
+            chosen_bandit = self.agent.choose()
+            results[i] = self.pull(chosen_bandit)
             if self.verbose:
-                print("T={} \t Playing bandit {} \t Reward is {:.2f}".format(t, k, results[t]))
+                print("T={} \t Playing bandit {} \t Reward is {:.2f}"
+                      .format(i, chosen_bandit, results[i]))
 
         return results
