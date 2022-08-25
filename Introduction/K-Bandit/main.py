@@ -1,6 +1,10 @@
-'''
-main
-'''
+"""
+The goal of this application is to provide a comparison
+study over the problem of the k-armed bandit.
+3 differents agent are compared: Random, e-greedy and UCB.
+The metric chose to compare them is the reward mean over
+the time step.
+"""
 import matplotlib.pyplot as plt
 import numpy as np
 import agent
@@ -8,7 +12,9 @@ from bandit import BanditsGame
 
 
 def incremental_mean(timeseries):
-    '''incremental_mean'''
+    """this function take a sequence of number and produce
+    the mean of each number and it's predecessor.
+    """
     means = np.zeros(timeseries.size)
     means[0] = timeseries[0]
     for i in range(1, timeseries.size):
@@ -17,7 +23,7 @@ def incremental_mean(timeseries):
 
 
 def run_simulation(agt, label, k=5, timestep=1000, verbose=True):
-    '''run_simulation'''
+    """run the bandit problem with the given agent"""
     bandit_game = BanditsGame(k, timestep, agt, verbose)
     results = incremental_mean(bandit_game.run())
     plt.plot(results, label=label)

@@ -1,14 +1,15 @@
-'''
-unit test for main file
-'''
+"""
+unit test for the file containing the implementation of the agent
+"""
 import numpy as np
 import agent
 
 class TestAgent:
-    '''class'''
+    """test class"""
 
     def test_incremental_mean(self):
-        '''test1'''
+        """test the incremental mean function. It try to see if changing
+        the value of an action effect the other."""
 
         agt = agent.RLAgent(2, e=0.1, action_selection_function="egreedy")
         agt.nb_step[0] += 1
@@ -24,7 +25,8 @@ class TestAgent:
         assert agt.incremental_mean(5, 1) == 7.5
 
     def test_update(self):
-        '''test1'''
+        """test the method update in the same manner that the
+        test_incremental_mean do"""
 
         agt = agent.RLAgent(2, e=0.1, action_selection_function="egreedy")
 
@@ -45,7 +47,8 @@ class TestAgent:
         assert agt.expected_values[1] == 0
 
     def test_e_greedy(self):
-        '''test1'''
+        """test the e-greedy function. for testing purposes, the random
+        function are mocked to obtain expected behaviour."""
 
         agt = agent.RLAgent(2, e=0.1, action_selection_function="egreedy")
 
@@ -64,7 +67,8 @@ class TestAgent:
         agent.random.randrange = temp[1]
 
     def test_ucb(self):
-        '''test1'''
+        """test the ucb function. it try to see if indeed, ucb see the
+        actions which have never been taken has maximizing"""
 
         agt = agent.RLAgent(2, c=5, action_selection_function="ucd")
 

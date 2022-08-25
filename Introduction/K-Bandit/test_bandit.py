@@ -1,19 +1,21 @@
-'''
-unit test for main file
-'''
+"""
+unit test for the bandit environment file
+"""
 import numpy as np
 
 import agent
 from bandit import BanditsGame
 
+
 class TestBanditGame:
-    '''class'''
+    """test class"""
 
     def test_pull(self):
-        '''test1'''
+        """test the pull method. It is done by setting the probability
+        of the bandit to 1 or 0. this way we obtain expected behaviour."""
 
         agt = agent.RandomAgent(5)
-        bandit = BanditsGame(5,100,agt,False)
+        bandit = BanditsGame(5, 100, agt, False)
         bandit.bandits = [1., 0., 0., 0., 0.]
         assert bandit.pull(0) == 1
         assert bandit.pull(1) == 0
