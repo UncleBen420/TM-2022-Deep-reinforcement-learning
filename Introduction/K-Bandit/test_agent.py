@@ -52,11 +52,16 @@ class TestAgent:
         random_numbers = [0, 1]
         random_numbers2 = [1]
 
+        temp = [agent.np.random.binomial, agent.random.randrange]
+
         agent.np.random.binomial = lambda n, m: random_numbers.pop(0)
         agent.random.randrange = lambda n: random_numbers2.pop(0)
         agt.expected_values[0] = 10
         assert agt.e_greedy() == 0
         assert agt.e_greedy() == 1
+
+        agent.np.random.binomial = temp[0]
+        agent.random.randrange = temp[1]
 
     def test_ucb(self):
         '''test1'''
