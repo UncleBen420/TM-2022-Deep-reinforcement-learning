@@ -26,6 +26,8 @@ class BanditsGame:
         for i in range(self.timestep):
             chosen_bandit = self.agent.choose()
             results[i] = self.pull(chosen_bandit)
+            self.agent.update(results[i], chosen_bandit)
+
             if self.verbose:
                 print("T={} \t Playing bandit {} \t Reward is {:.2f}"
                       .format(i, chosen_bandit, results[i]))

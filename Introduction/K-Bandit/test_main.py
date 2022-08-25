@@ -2,7 +2,6 @@
 unit test for main file
 '''
 import numpy as np
-
 from main import incremental_mean
 
 class TestClass:
