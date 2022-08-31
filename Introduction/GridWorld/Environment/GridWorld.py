@@ -3,9 +3,10 @@ from enum import Enum
 
 
 class Piece(Enum):
-    GOAL = {"code": 'X', "reward": 10, "is_terminal": 1}
-    PIT = {"code": 'O', "reward": -10, "is_terminal": 0}
-    SOIL = {"code": ' ', "reward": 0, "is_terminal": 0}
+    GOAL = {"code": 'X', "reward": 10, "is_terminal": True}
+    PIT = {"code": 'O', "reward": -10, "is_terminal": False}
+    SOIL = {"code": ' ', "reward": 0, "is_terminal": False}
+
 
 class Action(Enum):
     LEFT = 0
@@ -14,8 +15,13 @@ class Action(Enum):
     DOWN = 3
     TERMINAL = -1
 
+
 class Board:
     def __init__(self, size=5, nb_trap=2):
+
+        if nb_trap >= size * size:
+            raise Exception("number of trap cannot be greater or equal to the size^2")
+
         self.states = None
         self.size = size
         self.nb_action = 4
@@ -36,6 +42,43 @@ class Board:
 
         if not self.bfs():
             self.init_board()
+
+    def init_policy(self):
+        policy = np.full((self.size, self.size), 2)
+        for i in range(self.size):
+            if i % 2:
+                policy[i, :] = 0
+                policy[i, 0] = 3
+            else:
+                policy[i, -1] = 3
+
+        policy[-1] = 2
+        policy[-1, -1] = -1
+
+        return policy.reshape((self.size * self.size))
+
+    def evaluate_policy(self, policy, gamma, threshold):
+
+        V = np.zeros((self.size * self.size))
+
+        while True:
+            delta = 0
+            for s in range(self.states.size):
+                # Analysing terminal state is not necessary
+                if not self.states[s].value['is_terminal']:
+                    v = V[s]
+                    a = policy[s]
+
+                    ns = self.get_next_state(s, Action(a))
+                    r = self.get_reward(s, Action(a), ns)
+                    p = self.get_probability(s, Action(a), ns, r)
+                    V[s] = p * (r + gamma * V[ns])
+                    delta = max(delta, abs(v - V[s]))
+
+            if delta < threshold:
+                break
+        return V
+
 
     def bfs(self):
         mark_map = np.zeros((self.size, self.size))
@@ -82,7 +125,7 @@ class Board:
             self.agent = tuple(map(lambda i, j: i + j, self.agent, (0, -1)))
         # UP
         elif action == Action.UP and self.agent[0] > 0:
-            self.agent = tuple(map(lambda i, j: i + j, self.agent, (-1, 1)))
+            self.agent = tuple(map(lambda i, j: i + j, self.agent, (-1, 0)))
         # RIGHT
         elif action == Action.RIGHT and self.agent[1] < self.size - 1:
             self.agent = tuple(map(lambda i, j: i + j, self.agent, (0, 1)))
@@ -100,11 +143,27 @@ class Board:
         return self.move_agent(action)
 
     def get_reward(self, state, action, next_state):
+        # agent have a malus everytime they take a step to force the algorithm to
+        # converge to a solution with the minimal number of steps
         malus = -1
+        # if the agent take an action go in a wall it take another malus
         if state == next_state:
             malus = -2
 
-        return self.states[self.agent[0] * self.size + self.agent[1]].value["reward"] + malus
+        return self.states[next_state].value["reward"] + malus
+
+    def get_reward_with_agent(self, action):
+        current_state = self.agent[0] * self.size + self.agent[1]
+        next_state = self.move_agent(action)
+
+        # agent have a malus everytime they take a step to force the algorithm to
+        # converge to a solution with the minimal number of steps
+        malus = -1
+        # if the agent take an action go in a wall it take another malus
+        if current_state == next_state:
+            malus = -2
+
+        return self.states[next_state].value["reward"] + malus
 
     def get_probability(self, state, action, new_state, reward):
         return 1.
@@ -144,20 +203,23 @@ class Board:
                     actions_possible = '<'
 
                 # UP
-                if action == Action.UP.value:
+                elif action == Action.UP.value:
                     actions_possible = '^'
 
                 # RIGHT
-                if action == Action.RIGHT.value:
+                elif action == Action.RIGHT.value:
                     actions_possible = '>'
 
                 # DOWN
-                if action == Action.DOWN.value:
+                elif action == Action.DOWN.value:
                     actions_possible = 'v'
 
                 # TERMINAL
-                if action == Action.TERMINAL.value:
+                elif action == Action.TERMINAL.value:
                     actions_possible = '*'
+
+                else:
+                    actions_possible ='!'
 
                 visual += actions_possible + '|'
             visual += '\n'

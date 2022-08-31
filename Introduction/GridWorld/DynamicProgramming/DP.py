@@ -7,14 +7,7 @@ class DP:
     def __init__(self, environment, threshold=0.001, gamma=0.1):
         self.policy = np.zeros((environment.size * environment.size))
         self.V = np.zeros((environment.size * environment.size))
-        for i in range(environment.states.size):
-
-            if environment.states[i].value['is_terminal']:
-                self.V[i] = 0
-                self.policy[i] = -1
-            else:
-                self.V[i] = 1
-                self.policy[i] = 0
+        self.policy = environment.init_policy()
 
         self.threshold = threshold
         self.environment = environment
@@ -38,7 +31,6 @@ class DP:
 
             if delta < self.threshold:
                 break
-        print(self.V)
         return self.V
 
     def update_policy(self):
@@ -49,9 +41,9 @@ class DP:
             if not self.environment.states[s].value['is_terminal']:
 
                 old_action = self.policy[s]
-                possible_actions = np.zeros(4)
+                possible_actions = np.zeros(self.environment.nb_action)
 
-                for a in range(4):
+                for a in range(self.environment.nb_action):
                     ns = self.environment.get_next_state(s, Action(a))
                     r = self.environment.get_reward(s, Action(a), ns)
 
