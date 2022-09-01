@@ -2,6 +2,7 @@ import random
 
 import numpy as np
 
+from Environment import Agent
 from Environment.GridWorld import Action
 
 
@@ -29,7 +30,7 @@ class RandomPolicyAgent:
 
         for t in range(times):
             policy = self.random_policy()
-            V.append(self.environment.evaluate_policy(policy, self.gamma, self.threshold))
+            V.append(Agent.evaluate_policy(self.environment, policy, self.threshold, self.gamma))
 
         return V
 

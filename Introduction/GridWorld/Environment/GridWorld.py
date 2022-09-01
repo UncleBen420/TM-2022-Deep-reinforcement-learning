@@ -43,42 +43,6 @@ class Board:
         if not self.bfs():
             self.init_board()
 
-    def init_policy(self):
-        policy = np.full((self.size, self.size), 2)
-        for i in range(self.size):
-            if i % 2:
-                policy[i, :] = 0
-                policy[i, 0] = 3
-            else:
-                policy[i, -1] = 3
-
-        policy[-1] = 2
-        policy[-1, -1] = -1
-
-        return policy.reshape((self.size * self.size))
-
-    def evaluate_policy(self, policy, gamma, threshold):
-
-        V = np.zeros((self.size * self.size))
-
-        while True:
-            delta = 0
-            for s in range(self.states.size):
-                # Analysing terminal state is not necessary
-                if not self.states[s].value['is_terminal']:
-                    v = V[s]
-                    a = policy[s]
-
-                    ns = self.get_next_state(s, Action(a))
-                    r = self.get_reward(s, Action(a), ns)
-                    p = self.get_probability(s, Action(a), ns, r)
-                    V[s] = p * (r + gamma * V[ns])
-                    delta = max(delta, abs(v - V[s]))
-
-            if delta < threshold:
-                break
-        return V
-
 
     def bfs(self):
         mark_map = np.zeros((self.size, self.size))
@@ -185,43 +149,4 @@ class Board:
         for i in range(self.size):
             visual += '__'
         visual += '_'
-        return visual
-
-    def render_policy(self, policy):
-
-        visual = ""
-
-        for i in range(self.size):
-            visual += '|'
-            for j in range(self.size):
-
-                action = policy[i * self.size + j]
-
-                actions_possible = ''
-                # LEFT
-                if action == Action.LEFT.value:
-                    actions_possible = '<'
-
-                # UP
-                elif action == Action.UP.value:
-                    actions_possible = '^'
-
-                # RIGHT
-                elif action == Action.RIGHT.value:
-                    actions_possible = '>'
-
-                # DOWN
-                elif action == Action.DOWN.value:
-                    actions_possible = 'v'
-
-                # TERMINAL
-                elif action == Action.TERMINAL.value:
-                    actions_possible = '*'
-
-                else:
-                    actions_possible ='!'
-
-                visual += actions_possible + '|'
-            visual += '\n'
-
         return visual

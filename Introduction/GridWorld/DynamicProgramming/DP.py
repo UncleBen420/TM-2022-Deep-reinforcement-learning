@@ -1,5 +1,6 @@
 import numpy as np
 
+from Environment import Agent
 from Environment.GridWorld import Action
 
 
@@ -7,7 +8,7 @@ class DP:
     def __init__(self, environment, threshold=0.001, gamma=0.1):
         self.policy = np.zeros((environment.size * environment.size))
         self.V = np.zeros((environment.size * environment.size))
-        self.policy = environment.init_policy()
+        self.policy = Agent.init_policy(environment)
 
         self.threshold = threshold
         self.environment = environment
