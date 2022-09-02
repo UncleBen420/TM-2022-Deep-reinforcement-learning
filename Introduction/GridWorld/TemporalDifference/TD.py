@@ -16,15 +16,14 @@ class Sarsa:
         self.gamma = gamma
         self.episodes = episodes
         self.Q = np.zeros((environment.size * environment.size, environment.nb_action))
+        # for evaluation
+        self.V = np.zeros((environment.size * environment.size))
 
     def fit(self, verbose=False):
         if verbose:
             history = []
 
         for _ in range(self.episodes):
-
-            if verbose:
-                history.append(self.get_policy())
 
             S = 0 # initial state
             A = Agent.e_greedy(self.Q[S], self.e)
@@ -35,13 +34,17 @@ class Sarsa:
                 R = self.environment.get_reward(S, Action(A), S_prime)
                 A_prime = Agent.e_greedy(self.Q[S_prime], self.e)
                 self.Q[S][A] += self.a * (R + self.gamma * self.Q[S_prime][A_prime] - self.Q[S][A])
+                # evaluation of V
+                self.V[S] += self.a * (R + self.gamma * self.V[S_prime] - self.V[S])
                 S = S_prime
                 A = A_prime
 
                 if self.environment.states[S].value['is_terminal']:
                     break
-
-        return history
+            if verbose:
+                history.append(self.V.copy())
+        if verbose:
+            return history
 
     def get_policy(self):
         return np.argmax(self.Q, axis=1)
@@ -56,15 +59,14 @@ class QLearning:
         self.gamma = gamma
         self.episodes = episodes
         self.Q = np.zeros((environment.size * environment.size, environment.nb_action))
+        # for evaluation
+        self.V = np.zeros((environment.size * environment.size))
 
     def fit(self, verbose=False):
         if verbose:
             history = []
 
         for _ in range(self.episodes):
-
-            if verbose:
-                history.append(self.get_policy())
 
             S = 0 # initial state
 
@@ -75,12 +77,18 @@ class QLearning:
                 R = self.environment.get_reward(S, Action(A), S_prime)
 
                 self.Q[S][A] += self.a * (R + self.gamma * np.max(self.Q[S_prime]) - self.Q[S][A])
+                # evaluation of V
+                self.V[S] += self.a * (R + self.gamma * self.V[S_prime] - self.V[S])
                 S = S_prime
 
                 if self.environment.states[S].value['is_terminal']:
                     break
 
-        return history
+            if verbose:
+                history.append(self.V.copy())
+        if verbose:
+            return history
+
 
     def get_policy(self):
         return np.argmax(self.Q, axis=1)

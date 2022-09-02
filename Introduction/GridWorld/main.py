@@ -5,7 +5,7 @@ from Environment import Agent
 from Environment.GridWorld import Board
 import matplotlib.pyplot as plt
 from Environment.RandomPolicyAgent import RandomPolicyAgent
-from MonteCarlo.MC import MCES, OnPolicyMC, OffPolicyMC
+from MonteCarlo.MC import MCES
 from TemporalDifference.TD import Sarsa, QLearning
 
 
@@ -35,9 +35,9 @@ def evaluate_DP(grid_world, gamma, threshold):
     return plot_result(v, random_v, "DP")
 
 
-def evaluate_MC(grid_world, gamma, threshold, patience, episodes):
+def evaluate_MC(grid_world, gamma, patience, episodes):
     mces = MCES(grid_world, episodes=episodes, gamma=gamma, patience=patience)
-    v = Agent.fit_and_evaluate(mces, 0.001, 0.1)
+    v = mces.fit(True)
 
     random_agent = RandomPolicyAgent(grid_world)
     random_v = random_agent.generate_t_policy_validations(np.array(v).shape[0])
@@ -45,9 +45,9 @@ def evaluate_MC(grid_world, gamma, threshold, patience, episodes):
     plot_result(v, random_v, "MC")
 
 
-def evaluate_sarsa(grid_world, gamma, alpha, epsilon, threshold, episodes):
+def evaluate_sarsa(grid_world, gamma, alpha, epsilon, episodes):
     sarsa = Sarsa(board, episodes=episodes, alpha=alpha, gamma=gamma, epsilon=epsilon)
-    v = Agent.fit_and_evaluate(sarsa, 0.001, 0.1)
+    v = sarsa.fit(True)
 
     random_agent = RandomPolicyAgent(grid_world)
     random_v = random_agent.generate_t_policy_validations(np.array(v).shape[0])
@@ -55,9 +55,9 @@ def evaluate_sarsa(grid_world, gamma, alpha, epsilon, threshold, episodes):
     plot_result(v, random_v, "SARSA")
 
 
-def evaluate_q_learning(grid_world, gamma, alpha, epsilon, threshold, episodes):
+def evaluate_q_learning(grid_world, gamma, alpha, epsilon, episodes):
     q_learning = QLearning(board, episodes=episodes, alpha=alpha, gamma=gamma, epsilon=epsilon)
-    v = Agent.fit_and_evaluate(q_learning, 0.001, 0.1)
+    v = q_learning.fit(True)
 
     random_agent = RandomPolicyAgent(grid_world)
     random_v = random_agent.generate_t_policy_validations(np.array(v).shape[0])
@@ -70,6 +70,6 @@ if __name__ == '__main__':
     print(board.render_board())
 
     evaluate_DP(board, threshold=0.001, gamma=0.1)
-    evaluate_MC(board, threshold=0.001, gamma=0.1, patience=120, episodes=1000)
-    evaluate_sarsa(board, 0.1, 0.1, 0.1, 0.001, 100)
-    evaluate_q_learning(board, 0.1, 0.1, 0.1, 0.001, 100)
+    evaluate_MC(board, gamma=0.1, patience=120, episodes=1000)
+    evaluate_sarsa(board, 0.1, 0.1, 0.1, 100)
+    evaluate_q_learning(board, 0.1, 0.1, 0.1, 100)

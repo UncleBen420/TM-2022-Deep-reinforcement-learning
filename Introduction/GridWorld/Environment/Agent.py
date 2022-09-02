@@ -19,6 +19,19 @@ def incremental_mean(reward, state, action, nb_step, Q):
     Q[state][action] += (reward - Q[state][action]) / nb_step[state][action]
     return nb_step, Q
 
+def incremental_mean_V(reward, state, nb_step, V):
+    """
+    do the incremental mean between a reward and the espected value
+    :param state:
+    :param action: the number of the action taken
+    :param reward: is the reward given by the environment
+    :return: the mean value
+    """
+    nb_step[state] += 1
+
+    V[state] += (reward - V[state]) / nb_step[state]
+    return nb_step, V
+
 
 def fit_and_evaluate(model, threshold=0.001, gamma=0.1):
     V = []
