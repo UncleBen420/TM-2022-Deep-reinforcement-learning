@@ -1,10 +1,16 @@
+"""
+This file contain an implementation of an dynamic programming agent capable of resolving
+a grid world problem
+"""
 import numpy as np
-
 from Environment import Agent
 from Environment.GridWorld import Action
 
 
 class DP:
+    """
+    This class implement a dynamic programming algorithme based on evaluation and updating a policy
+    """
     def __init__(self, environment, threshold=0.001, gamma=0.1):
         self.policy = np.zeros((environment.size * environment.size))
         self.V = np.zeros((environment.size * environment.size))
@@ -15,6 +21,10 @@ class DP:
         self.gamma = gamma
 
     def evaluate_policy(self):
+        '''
+        This method evaluate the policy by updating the function V
+        :return: return the updated function V
+        '''
 
         while True:
             delta = 0
@@ -35,8 +45,12 @@ class DP:
         return self.V
 
     def update_policy(self):
-        policy_stable = True
+        """
+        This method update the policy.
+        :return: return if the policy is stable after updating.
+        """
 
+        policy_stable = True
         for s in range(self.environment.states.size):
             # Analysing terminal state is not necessary
             if not self.environment.states[s].value['is_terminal']:
@@ -58,14 +72,22 @@ class DP:
 
         return policy_stable
 
-    def policy_iteration(self):
+    def fit(self, verbose=False):
+        """
+        This method implement the policy iteration method by calling successively evaluation and update.
+        :param verbose: if true the function return the evolution of the V function over the iteration.
+        :return: if true return the v function of multiple iteration, if false return nothing
+        """
+        if verbose:
+            v = []
+            while True:
+                v.append(self.evaluate_policy().copy())
+                if self.update_policy():
+                    break
 
-        history = []
-        v = []
+            return v
+
         while True:
-            history.append(self.policy.copy())
-            v.append(self.evaluate_policy().copy())
+            self.evaluate_policy().copy()
             if self.update_policy():
                 break
-
-        return history, v

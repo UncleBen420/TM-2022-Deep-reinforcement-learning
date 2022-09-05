@@ -1,14 +1,15 @@
+"""
+This file implement helper function for the different algorithms implemented
+"""
 import random
-from abc import abstractmethod
-
 import numpy as np
-
 from Environment.GridWorld import Action
 
 
 def incremental_mean(reward, state, action, nb_step, Q):
     """
-    do the incremental mean between a reward and the espected value
+    do the incremental mean between a reward and the expected value
+    :param nb_step:
     :param state:
     :param action: the number of the action taken
     :param reward: is the reward given by the environment
@@ -19,9 +20,10 @@ def incremental_mean(reward, state, action, nb_step, Q):
     Q[state][action] += (reward - Q[state][action]) / nb_step[state][action]
     return nb_step, Q
 
+
 def incremental_mean_V(reward, state, nb_step, V):
     """
-    do the incremental mean between a reward and the espected value
+    do the incremental mean between a reward and the expected value
     :param state:
     :param action: the number of the action taken
     :param reward: is the reward given by the environment
@@ -34,6 +36,13 @@ def incremental_mean_V(reward, state, nb_step, V):
 
 
 def fit_and_evaluate(model, threshold=0.001, gamma=0.1):
+    """
+
+    :param model:
+    :param threshold:
+    :param gamma:
+    :return:
+    """
     V = []
     for episode in model.fit(verbose=True):
         V.append(evaluate_policy(model.environment, episode, threshold, gamma))
@@ -52,7 +61,25 @@ def e_greedy(A, e):
     return np.argmax(A)
 
 
+def get_greedy_prob(A, e, nb_actions):
+    """
+
+    :param A:
+    :param e:
+    :param nb_actions:
+    :return:
+    """
+    if np.random.binomial(1, e):
+        return e / nb_actions
+    return 1 - e + e / np.count_nonzero(A == np.max(A))
+
+
 def init_policy(environment):
+    """
+
+    :param environment:
+    :return:
+    """
     policy = np.full((environment.size, environment.size), 2)
     for i in range(environment.size):
         if i % 2:
@@ -68,6 +95,14 @@ def init_policy(environment):
 
 
 def evaluate_policy(environment, policy, threshold=0.001, gamma=0.1):
+    """
+
+    :param environment:
+    :param policy:
+    :param threshold:
+    :param gamma:
+    :return:
+    """
     V = np.zeros((environment.size * environment.size))
 
     while True:
@@ -90,6 +125,12 @@ def evaluate_policy(environment, policy, threshold=0.001, gamma=0.1):
 
 
 def render_policy(environment, policy):
+    """
+
+    :param environment:
+    :param policy:
+    :return:
+    """
     visual = ""
 
     for i in range(environment.size):
