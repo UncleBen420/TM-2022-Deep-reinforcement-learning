@@ -9,9 +9,10 @@ from Environment.GridWorld import Action
 def incremental_mean(reward, state, action, nb_step, Q):
     """
     do the incremental mean between a reward and the expected value
-    :param nb_step:
-    :param state:
-    :param action: the number of the action taken
+    :param Q: the Q function represented by a lookup table
+    :param nb_step: number of time a incremental mean as been called
+    :param state: the current state
+    :param action: the action taken
     :param reward: is the reward given by the environment
     :return: the mean value
     """
@@ -23,31 +24,17 @@ def incremental_mean(reward, state, action, nb_step, Q):
 
 def incremental_mean_V(reward, state, nb_step, V):
     """
-    do the incremental mean between a reward and the expected value
-    :param state:
-    :param action: the number of the action taken
+    do the incremental mean between a reward and the expected
+    value for a V function
+    :param V: the V function for every State
+    :param nb_step: number of time a incremental mean as been called
+    :param state: the current state
     :param reward: is the reward given by the environment
     :return: the mean value
     """
     nb_step[state] += 1
-
     V[state] += (reward - V[state]) / nb_step[state]
     return nb_step, V
-
-
-def fit_and_evaluate(model, threshold=0.001, gamma=0.1):
-    """
-
-    :param model:
-    :param threshold:
-    :param gamma:
-    :return:
-    """
-    V = []
-    for episode in model.fit(verbose=True):
-        V.append(evaluate_policy(model.environment, episode, threshold, gamma))
-
-    return V
 
 
 def e_greedy(A, e):
@@ -61,24 +48,39 @@ def e_greedy(A, e):
     return np.argmax(A)
 
 
-def get_greedy_prob(A, e, nb_actions):
+def get_e_greedy_prob(A, e):
+    """
+    Return the probability for a e-greedy policy
+    :param A: the set of actions
+    :param e: the epsilon parameter
+    :return: the probability of the set of action
     """
 
-    :param A:
-    :param e:
-    :param nb_actions:
-    :return:
+    greedy_actions = A == np.max(A) # all actions with the maximal value
+    nb_greedy = np.count_nonzero(greedy_actions) # number of max actions
+    non_greedy_probability = e / len(A)
+    return greedy_actions * ((1 - e) / nb_greedy) + non_greedy_probability
+
+
+def get_greedy_prb(A):
     """
-    if np.random.binomial(1, e):
-        return e / nb_actions
-    return 1 - e + e / np.count_nonzero(A == np.max(A))
+    Return the probability for a greedy policy a.k.a. a policy that
+    priorities maximal expected value.
+    :param A: the set of actions
+    :return: the probability of the set of action
+    """
+    greedy_actions = A == np.max(A)
+    nb_greedy = np.count_nonzero(greedy_actions)
+    return greedy_actions * (1 / nb_greedy)
 
 
 def init_policy(environment):
     """
-
-    :param environment:
-    :return:
+    This function is used in some algorithme to initialise a policy
+    to a path in the grid world that will lead to the terminal state no
+    matter were the starting point is.
+    :param environment: the grid world environment object
+    :return: return a policy with the same shape as the environment
     """
     policy = np.full((environment.size, environment.size), 2)
     for i in range(environment.size):
@@ -96,12 +98,13 @@ def init_policy(environment):
 
 def evaluate_policy(environment, policy, threshold=0.001, gamma=0.1):
     """
-
-    :param environment:
-    :param policy:
-    :param threshold:
-    :param gamma:
-    :return:
+    this function can evaluate a policy with the dynamic programming
+    evaluation method.
+    :param environment: the grid world environment object
+    :param policy: the current policy of the agent (it doesn't matter the algorithm)
+    :param threshold: the minimum threshold between V and V + 1.
+    :param gamma: the gamma parameter for the V update
+    :return: a V function indicating the expected return following this policy
     """
     V = np.zeros((environment.size * environment.size))
 
@@ -126,13 +129,13 @@ def evaluate_policy(environment, policy, threshold=0.001, gamma=0.1):
 
 def render_policy(environment, policy):
     """
-
-    :param environment:
-    :param policy:
-    :return:
+    this function allow a user to render the policy to see which action
+    a greedy agent would follow.
+    :param environment: the grid world environment object
+    :param policy: the current policy of the agent (it doesn't matter the algorithm)
+    :return: a string representing
     """
     visual = ""
-
     for i in range(environment.size):
         visual += '|'
         for j in range(environment.size):

@@ -7,6 +7,7 @@ from DynamicProgramming.DP import DP
 from Environment.GridWorld import Board
 from Environment.RandomPolicyAgent import RandomPolicyAgent
 from MonteCarlo.MC import MCES
+from N_StepTD.NTD import OffPolicyNStepSarsa
 from TemporalDifference.TD import Sarsa, QLearning, DoubleQLearning, ExpectedSarsa
 
 
@@ -18,11 +19,11 @@ def plot_result(environment, agent, name):
     :param name: the name of the algorithme that will be implemented
     :return: the name and the mean v over n episode.
     '''
-    expected_rewards = agent.fit(True)
+    expected_rewards, sum_of_reward = agent.fit(True)
     random_agent = RandomPolicyAgent(environment)
     random_v = random_agent.generate_t_policy_validations(len(expected_rewards))
 
-    fig, axs = plt.subplots(nrows=3, ncols=1)
+    fig, axs = plt.subplots(nrows=4, ncols=1)
     fig.suptitle(name)
     fig.tight_layout(h_pad=3, w_pad=3)
 
@@ -44,12 +45,17 @@ def plot_result(environment, agent, name):
     axs[2].set_title('Mean V of the 2 agents')
     axs[2].set_xlabel('nb iteration')
     axs[2].set_ylabel('mean of V')
+    axs[2].legend()
 
-    plt.legend()
+    axs[3].plot(sum_of_reward)
+    axs[3].set_title('Agent accumulated rewards')
+    axs[3].set_xlabel('nb iteration')
+    axs[3].set_ylabel('sum of reward')
+
     plt.show()
 
     print("Mean of V:{0} for {1} iterations.".format(mean_v[-1], len(mean_v)))
-    return {'mean': mean_v, 'name': name}
+    return {'mean': mean_v, 'reward':sum_of_reward, 'name': name}
 
 
 if __name__ == '__main__':
@@ -57,21 +63,29 @@ if __name__ == '__main__':
     print(BOARD.render_board())
 
     AGENT_DP = DP(BOARD, 0.001, 0.1)
-    AGENT_MC = MCES(BOARD, 1000, 0.1, 120)
+    AGENT_MC = MCES(BOARD, 100, 0.1, 120)
     AGENT_SA = Sarsa(BOARD, 0.1, 0.1, 0.1, 100)
     AGENT_QL = QLearning(BOARD, 0.1, 0.1, 0.1, 100)
     AGENT_DQ = DoubleQLearning(BOARD, 0.1, 0.1, 0.1, 100)
     AGENT_ES = ExpectedSarsa(BOARD, 0.1, 0.1, 0.1, 100)
+    AGENT_NS = OffPolicyNStepSarsa(BOARD, 0.1, 0.1, 0.1, 100, 3)
 
     SUMMARY = [plot_result(BOARD, AGENT_DP, "Dynamic Programming"),
                plot_result(BOARD, AGENT_MC, "Monte Carlo ES"),
                plot_result(BOARD, AGENT_SA, "Sarsa"),
                plot_result(BOARD, AGENT_QL, "Q-learning"),
-               plot_result(BOARD, AGENT_DQ, "Double Q-learning"),
-               plot_result(BOARD, AGENT_ES, "Expected Sarsa")]
+               #plot_result(BOARD, AGENT_DQ, "Double Q-learning"),
+               #plot_result(BOARD, AGENT_ES, "Expected Sarsa"),
+               plot_result(BOARD, AGENT_NS, "N-step off-policy Sarsa")]
 
     for algo in SUMMARY:
         plt.plot(algo['mean'], label=algo['name'])
+
+    plt.legend()
+    plt.show()
+
+    for algo in SUMMARY:
+        plt.plot(algo['reward'], label=algo['name'])
 
     plt.legend()
     plt.show()

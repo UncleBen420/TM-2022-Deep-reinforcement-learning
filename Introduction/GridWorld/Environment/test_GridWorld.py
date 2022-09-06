@@ -4,6 +4,7 @@ unit test for the bandit environment file
 
 import pytest
 
+from Environment import Agent
 from Environment.GridWorld import Board, Piece, Action
 
 

@@ -22,10 +22,13 @@ class Sarsa:
     def fit(self, verbose=False):
         if verbose:
             history = []
+            rewards = []
 
         for _ in range(self.episodes):
 
             S = 0  # initial state
+            if verbose:
+                reward = 0
             A = Agent.e_greedy(self.Q[S], self.e)
 
             while True:
@@ -39,12 +42,17 @@ class Sarsa:
                 S = S_prime
                 A = A_prime
 
+                if verbose:
+                    reward += R
+
                 if self.environment.states[S].value['is_terminal']:
                     break
             if verbose:
                 history.append(self.V.copy())
+                rewards.append(reward)
+
         if verbose:
-            return history
+            return history, rewards
 
     def get_policy(self):
         return np.argmax(self.Q, axis=1)
@@ -65,10 +73,13 @@ class QLearning:
     def fit(self, verbose=False):
         if verbose:
             history = []
+            rewards = []
 
         for _ in range(self.episodes):
 
             S = 0  # initial state
+            if verbose:
+                reward = 0
 
             while True:
 
@@ -81,13 +92,18 @@ class QLearning:
                 self.V[S] += self.a * (R + self.gamma * self.V[S_prime] - self.V[S])
                 S = S_prime
 
+                if verbose:
+                    reward += R
+
                 if self.environment.states[S].value['is_terminal']:
                     break
 
             if verbose:
                 history.append(self.V.copy())
+                rewards.append(reward)
+
         if verbose:
-            return history
+            return history, rewards
 
     def get_policy(self):
         return np.argmax(self.Q, axis=1)
@@ -109,10 +125,13 @@ class DoubleQLearning:
     def fit(self, verbose=False):
         if verbose:
             history = []
+            rewards = []
 
         for _ in range(self.episodes):
 
             S = 0  # initial state
+            if verbose:
+                reward = 0
 
             while True:
 
@@ -121,24 +140,32 @@ class DoubleQLearning:
                 R = self.environment.get_reward(S, Action(A), S_prime)
 
                 if np.random.binomial(1, 0.5):
-                    self.Q1[S][A] += self.a * (R + self.gamma * self.Q2[S_prime][np.argmax(self.Q1[S_prime])] - self.Q1[S][A])
+                    self.Q1[S][A] += self.a * (
+                                R + self.gamma * self.Q2[S_prime][np.argmax(self.Q1[S_prime])] - self.Q1[S][A])
                 else:
-                    self.Q2[S][A] += self.a * (R + self.gamma * self.Q1[S_prime][np.argmax(self.Q2[S_prime])] - self.Q2[S][A])
+                    self.Q2[S][A] += self.a * (
+                                R + self.gamma * self.Q1[S_prime][np.argmax(self.Q2[S_prime])] - self.Q2[S][A])
 
                 # evaluation of V
                 self.V[S] += self.a * (R + self.gamma * self.V[S_prime] - self.V[S])
                 S = S_prime
+
+                if verbose:
+                    reward += R
 
                 if self.environment.states[S].value['is_terminal']:
                     break
 
             if verbose:
                 history.append(self.V.copy())
+                rewards.append(reward)
+
         if verbose:
-            return history
+            return history, rewards
 
     def get_policy(self):
         return np.argmax(self.Q1, axis=1)
+
 
 class ExpectedSarsa:
 
@@ -155,10 +182,13 @@ class ExpectedSarsa:
     def fit(self, verbose=False):
         if verbose:
             history = []
+            rewards = []
 
         for _ in range(self.episodes):
 
             S = 0  # initial state
+            if verbose:
+                reward = 0
 
             while True:
 
@@ -168,20 +198,24 @@ class ExpectedSarsa:
 
                 self.Q[S][A] += self.a * (R +
                                           self.gamma *
-                                          np.sum(Agent.get_greedy_prob(self.Q[S_prime], self.e, self.environment.nb_action) * self.Q[S_prime]) -
+                                          np.sum(Agent.get_e_greedy_prob(self.Q[S_prime], self.e) * self.Q[S_prime]) -
                                           self.Q[S][A])
                 # evaluation of V
                 self.V[S] += self.a * (R + self.gamma * self.V[S_prime] - self.V[S])
                 S = S_prime
+
+                if verbose:
+                    reward += R
 
                 if self.environment.states[S].value['is_terminal']:
                     break
 
             if verbose:
                 history.append(self.V.copy())
+                rewards.append(reward)
+
         if verbose:
-            return history
+            return history, rewards
 
     def get_policy(self):
         return np.argmax(self.Q, axis=1)
-

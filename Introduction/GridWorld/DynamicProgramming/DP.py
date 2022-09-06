@@ -85,7 +85,7 @@ class DP:
                 if self.update_policy():
                     break
 
-            return v
+            return v, 0
 
         while True:
             self.evaluate_policy().copy()

@@ -23,8 +23,12 @@ class MCES:
 
         if verbose:
             history = []
+            rewards = []
 
         for _ in range(self.episodes):
+
+            if verbose:
+                reward = 0
 
             # No need to check if p(S0, A0) > 0 because in
             # GridWorld every pair A/S have a probability of 1
@@ -53,6 +57,9 @@ class MCES:
                 S.append(new_state)
                 A.append(self.policy[new_state])
 
+                if verbose:
+                    reward += R[-1]
+
                 if self.environment.states[new_state].value['is_terminal']:
                     break
 
@@ -71,6 +78,7 @@ class MCES:
 
             if verbose:
                 history.append(self.V.copy())
+                rewards.append(reward)
 
         if verbose:
-            return history
+            return history, rewards
