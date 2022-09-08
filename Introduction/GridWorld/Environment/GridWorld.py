@@ -1,3 +1,5 @@
+import this
+
 import numpy as np
 from enum import Enum
 
@@ -6,6 +8,52 @@ class Piece(Enum):
     GOAL = {"code": 'X', "reward": 10, "is_terminal": True}
     PIT = {"code": 'O', "reward": -10, "is_terminal": False}
     SOIL = {"code": ' ', "reward": 0, "is_terminal": False}
+
+
+class PieceRender(Enum):
+    GOAL = [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 1, 0, 0, 1, 1, 0, 0, 1, 0],
+            [0, 1, 1, 0, 1, 1, 0, 1, 1, 0],
+            [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+            [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+            [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+            [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+            [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+            [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]
+
+    AGENT = [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+             [0, 0, 0, 0, 1, 1, 0, 0, 0, 0],
+             [0, 0, 0, 0, 1, 1, 0, 0, 0, 0],
+             [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+             [0, 1, 0, 0, 0, 0, 0, 0, 1, 0],
+             [0, 1, 0, 1, 0, 0, 1, 0, 1, 0],
+             [0, 1, 0, 0, 0, 0, 0, 0, 1, 0],
+             [0, 1, 0, 1, 1, 1, 1, 0, 1, 0],
+             [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]
+
+    PIT = [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+           [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
+           [0, 1, 0, 0, 0, 0, 0, 0, 1, 0],
+           [0, 1, 0, 1, 0, 0, 1, 0, 1, 0],
+           [0, 1, 0, 1, 0, 0, 1, 0, 1, 0],
+           [0, 0, 1, 0, 0, 0, 0, 1, 0, 0],
+           [0, 0, 0, 1, 0, 0, 1, 0, 0, 0],
+           [0, 0, 0, 1, 0, 0, 1, 0, 0, 0],
+           [0, 0, 0, 1, 1, 1, 1, 0, 0, 0],
+           [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]
+
+    EMPTY = [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]
 
 
 class Action(Enum):
@@ -42,7 +90,6 @@ class Board:
 
         if not self.bfs():
             self.init_board()
-
 
     def bfs(self):
         mark_map = np.zeros((self.size, self.size))
@@ -149,4 +196,30 @@ class Board:
         for i in range(self.size):
             visual += '__'
         visual += '_'
+        return visual
+
+    def render_board_img(self):
+        visual = np.ones((self.size * 10, self.size * 10, 1))
+        print(visual.shape)
+
+        for i in range(self.size):
+            for j in range(self.size):
+                render_case =  PieceRender.EMPTY.value
+                icon = 0.
+
+                if (i + j) % 2:
+                    render_case = np.logical_not(render_case)
+
+                if self.states[i * self.size + j].value["code"] == 'X':
+                    icon = PieceRender.GOAL.value
+                elif self.states[i * self.size + j].value["code"] == 'O':
+                    icon = PieceRender.PIT.value
+
+                if self.agent == (i, j):
+                    icon = PieceRender.AGENT.value
+
+                render_case = np.logical_xor(icon, render_case).reshape((10, 10, 1))
+
+                visual[(i * 10):((i + 1) * 10), (j * 10):((j + 1) * 10)] = render_case
+
         return visual

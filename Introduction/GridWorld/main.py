@@ -4,6 +4,7 @@ This file provide a comparison of a few RL agents over a grid world.
 import matplotlib.pyplot as plt
 import numpy as np
 from DynamicProgramming.DP import DP
+from Environment import Agent
 from Environment.GridWorld import Board
 from Environment.RandomPolicyAgent import RandomPolicyAgent
 from MonteCarlo.MC import MCES
@@ -62,30 +63,35 @@ if __name__ == '__main__':
     BOARD = Board(nb_trap=30, size=10)
     print(BOARD.render_board())
 
+    plt.imshow(BOARD.render_board_img())
+    plt.show()
+
     AGENT_DP = DP(BOARD, 0.001, 0.1)
     AGENT_MC = MCES(BOARD, 100, 0.1, 120)
-    AGENT_SA = Sarsa(BOARD, 0.1, 0.1, 0.1, 100)
-    AGENT_QL = QLearning(BOARD, 0.1, 0.1, 0.1, 100)
-    AGENT_DQ = DoubleQLearning(BOARD, 0.1, 0.1, 0.1, 100)
-    AGENT_ES = ExpectedSarsa(BOARD, 0.1, 0.1, 0.1, 100)
-    AGENT_NS = OffPolicyNStepSarsa(BOARD, 0.1, 0.1, 0.1, 100, 3)
+    AGENT_SA = Sarsa(BOARD, Agent.E_Greedy(0.1), 0.1, 0.1, 100, 10000)
+    AGENT_QL = QLearning(BOARD, Agent.UCB(0.9), 0.1, 0.1, 100, 10000)
+    AGENT_QLE = QLearning(BOARD, Agent.E_Greedy(0.1), 0.1, 0.1, 100, 10000)
+    AGENT_DQ = DoubleQLearning(BOARD, Agent.E_Greedy(0.1), 0.1, 0.1, 100, 10000)
+    AGENT_ES = ExpectedSarsa(BOARD, Agent.E_Greedy(0.1), 0.1, 0.1, 100, 10000)
+    AGENT_NS = OffPolicyNStepSarsa(BOARD, Agent.E_Greedy(0.1), 0.1, 0.1, 100, 3, 10000)
 
-    SUMMARY = [plot_result(BOARD, AGENT_DP, "Dynamic Programming"),
-               plot_result(BOARD, AGENT_MC, "Monte Carlo ES"),
-               plot_result(BOARD, AGENT_SA, "Sarsa"),
-               plot_result(BOARD, AGENT_QL, "Q-learning"),
+    #SUMMARY = [plot_result(BOARD, AGENT_DP, "Dynamic Programming"),
+               #plot_result(BOARD, AGENT_MC, "Monte Carlo ES"),
+               #plot_result(BOARD, AGENT_SA, "Sarsa"),
+               #plot_result(BOARD, AGENT_QL, "Q-learning"),
+               #plot_result(BOARD, AGENT_QL, "Q-learning e greedy"),
                #plot_result(BOARD, AGENT_DQ, "Double Q-learning"),
                #plot_result(BOARD, AGENT_ES, "Expected Sarsa"),
-               plot_result(BOARD, AGENT_NS, "N-step off-policy Sarsa")]
+               #plot_result(BOARD, AGENT_NS, "N-step off-policy Sarsa")]
 
-    for algo in SUMMARY:
-        plt.plot(algo['mean'], label=algo['name'])
+    #for algo in SUMMARY:
+    #    plt.plot(algo['mean'], label=algo['name'])
 
-    plt.legend()
-    plt.show()
+    #plt.legend()
+    #plt.show()
 
-    for algo in SUMMARY:
-        plt.plot(algo['reward'], label=algo['name'])
+    #for algo in SUMMARY:
+    #    plt.plot(algo['reward'], label=algo['name'])
 
-    plt.legend()
-    plt.show()
+    #plt.legend()
+    #plt.show()

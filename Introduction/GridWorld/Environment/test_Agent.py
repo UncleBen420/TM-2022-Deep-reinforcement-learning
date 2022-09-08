@@ -36,6 +36,15 @@ class TestGridWorld:
         """test the e-greedy function. for testing purposes, the random
         function are mocked to obtain expected behaviour."""
 
+        class DummyAgent:
+            pass
+
+        da = DummyAgent()
+        da.Q = [[0., 0., 1.], [1., 0., 0.]]
+
+        eg = Agent.E_Greedy(0.1)
+        eg.set_agent(da)
+
         random_numbers = [0, 1]
         random_numbers2 = [1]
 
@@ -43,20 +52,30 @@ class TestGridWorld:
 
         Agent.np.random.binomial = lambda n, m: random_numbers.pop(0)
         Agent.random.randrange = lambda n: random_numbers2.pop(0)
-        Action = [0., 0., 1.]
 
-        assert Agent.e_greedy(Action, 0.1) == 2
-        assert Agent.e_greedy(Action, 0.1) == 1
+
+        assert eg.chose_action(0) == 2
+        assert eg.chose_action(0) == 1
 
         Agent.np.random.binomial = temp[0]
         Agent.random.randrange = temp[1]
 
     def test_get_e_greedy_prob(self):
+        class DummyAgent:
+            pass
+        da = DummyAgent()
+        da.Q = [[0., 0., 1.], [1., 0., 0.]]
 
-        Action = [0., 0., 0., 0.1]
-        np.testing.assert_array_almost_equal(Agent.get_e_greedy_prob(Action, 0.1), [0.025, 0.025, 0.025, 0.925])
-        np.testing.assert_array_almost_equal(Agent.get_e_greedy_prob(Action, 0.5), [0.125, 0.125, 0.125, 0.625])
+        eg = Agent.E_Greedy(0.1)
+        eg.set_agent(da)
 
-        Action = [0., 0., 0.1, 0.1]
-        np.testing.assert_array_almost_equal(Agent.get_e_greedy_prob(Action, 0.1), [0.025, 0.025, 0.475, 0.475])
-        np.testing.assert_array_almost_equal(Agent.get_e_greedy_prob(Action, 0.5), [0.125, 0.125, 0.375, 0.375])
+        da.Q = [[0., 0., 0., 0.1]]
+        np.testing.assert_array_almost_equal(eg.probability(0), [0.025, 0.025, 0.025, 0.925])
+        eg.e = 0.5
+        np.testing.assert_array_almost_equal(eg.probability(0), [0.125, 0.125, 0.125, 0.625])
+
+        da.Q = [[0., 0., 0.1, 0.1]]
+        eg.e = 0.1
+        np.testing.assert_array_almost_equal(eg.probability(0), [0.025, 0.025, 0.475, 0.475])
+        eg.e = 0.5
+        np.testing.assert_array_almost_equal(eg.probability(0), [0.125, 0.125, 0.375, 0.375])

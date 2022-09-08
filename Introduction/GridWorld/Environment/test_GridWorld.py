@@ -1,11 +1,11 @@
 """
 unit test for the bandit environment file
 """
-
+import numpy as np
 import pytest
 
 from Environment import Agent
-from Environment.GridWorld import Board, Piece, Action
+from Environment.GridWorld import Board, Piece, Action, PieceRender
 
 
 class TestGridWorld:
@@ -126,3 +126,22 @@ class TestGridWorld:
         board = Board(size=3)
         board.states = board_grid
         assert board.render_board() == render
+
+    def test_render_board_img(self):
+        board_grid = [Piece.SOIL, Piece.SOIL, Piece.SOIL,
+                      Piece.PIT, Piece.PIT, Piece.SOIL,
+                      Piece.SOIL, Piece.GOAL, Piece.SOIL]
+
+        render = np.append(PieceRender.EMPTY.value, np.logical_not(PieceRender.AGENT.value), axis=1)
+        render = np.append(render, PieceRender.EMPTY.value, axis=1)
+        render2 = np.append(np.logical_not(PieceRender.PIT.value), PieceRender.PIT.value, axis=1)
+        render2 = np.append(render2, np.logical_not(PieceRender.EMPTY.value), axis=1)
+        render3 = np.append(PieceRender.EMPTY.value, np.logical_not(PieceRender.GOAL.value), axis=1)
+        render3 = np.append(render3, PieceRender.EMPTY.value, axis=1)
+        render = np.append(render, render2, axis=0)
+        render = np.append(render, render3, axis=0).reshape((30, 30, 1))
+
+        board = Board(size=3)
+        board.states = board_grid
+        board.agent = (0, 1)
+        np.testing.assert_array_equal(board.render_board_img(), render)

@@ -4,6 +4,86 @@ This file implement helper function for the different algorithms implemented
 import random
 import numpy as np
 from Environment.GridWorld import Action
+from abc import ABC, abstractmethod
+
+
+class Policy(ABC):
+
+    def __init__(self):
+        self.agent = None
+
+    def set_agent(self, agent):
+        self.agent = agent
+
+    @abstractmethod
+    def chose_action(self, state):
+        pass
+
+    @abstractmethod
+    def probability(self, state):
+        pass
+
+
+class E_Greedy(Policy):
+
+    def __init__(self, epsilon):
+        self.e = epsilon
+
+    def chose_action(self, state):
+        if np.random.binomial(1, self.e):
+            return random.randrange(len(self.agent.Q[state]))
+        return np.argmax(self.agent.Q[state])
+
+    def probability(self, state):
+        greedy_actions = self.agent.Q[state] == np.max(self.agent.Q[state])  # all actions with the maximal value
+        nb_greedy = np.count_nonzero(greedy_actions)  # number of max actions
+        non_greedy_probability = self.e / len(self.agent.Q[state])
+        return greedy_actions * ((1 - self.e) / nb_greedy) + non_greedy_probability
+
+
+class Greedy(Policy):
+
+    def chose_action(self, state):
+        return np.argmax(self.agent.Q[state])
+
+    def probability(self, state):
+        greedy_actions = self.agent.Q[state] == np.max(self.agent.Q[state])
+        nb_greedy = np.count_nonzero(greedy_actions)
+        return greedy_actions * (1 / nb_greedy)
+
+
+class UCB(Policy):
+
+    def __init__(self, c):
+        self.nb_step = None
+        self.c = c
+        self.nb_total_step = 0
+
+    def set_agent(self, agent):
+        self.agent = agent
+        self.nb_step = np.zeros_like(agent.Q)
+
+    def calculation(self, state):
+        return self.agent.Q[state] + self.c * np.sqrt(np.log(self.nb_total_step) / self.nb_step[state])
+
+    def chose_action(self, state):
+        self.nb_total_step += 1
+        self.nb_step[state] += 1
+
+        # if an action has never been taken its considered has a maximizing action
+        if np.count_nonzero(self.agent.Q[state] == 0):
+            return np.where(self.agent.Q[state] == 0)[0][0]
+
+        return np.argmax(self.calculation(state))
+
+    def probability(self, state):
+        chance_of_been_chosen = self.calculation(state)
+        chance_of_been_chosen = ((chance_of_been_chosen - np.min(chance_of_been_chosen)) /
+                                 (np.max(chance_of_been_chosen) - np.min(chance_of_been_chosen) + 0.000001))
+        chance_of_been_chosen = np.where(self.agent.Q[state] == 0, 1., chance_of_been_chosen) + 0.01
+        sum_of_probability = np.sum(chance_of_been_chosen)
+
+        return chance_of_been_chosen / sum_of_probability
 
 
 def incremental_mean(reward, state, action, nb_step, Q):
@@ -35,43 +115,6 @@ def incremental_mean_V(reward, state, nb_step, V):
     nb_step[state] += 1
     V[state] += (reward - V[state]) / nb_step[state]
     return nb_step, V
-
-
-def e_greedy(A, e):
-    """
-    this function is used to select an action based on the
-    e-greedy function.
-    :return: the chosen action
-    """
-    if np.random.binomial(1, e):
-        return random.randrange(len(A))
-    return np.argmax(A)
-
-
-def get_e_greedy_prob(A, e):
-    """
-    Return the probability for a e-greedy policy
-    :param A: the set of actions
-    :param e: the epsilon parameter
-    :return: the probability of the set of action
-    """
-
-    greedy_actions = A == np.max(A) # all actions with the maximal value
-    nb_greedy = np.count_nonzero(greedy_actions) # number of max actions
-    non_greedy_probability = e / len(A)
-    return greedy_actions * ((1 - e) / nb_greedy) + non_greedy_probability
-
-
-def get_greedy_prb(A):
-    """
-    Return the probability for a greedy policy a.k.a. a policy that
-    priorities maximal expected value.
-    :param A: the set of actions
-    :return: the probability of the set of action
-    """
-    greedy_actions = A == np.max(A)
-    nb_greedy = np.count_nonzero(greedy_actions)
-    return greedy_actions * (1 / nb_greedy)
 
 
 def init_policy(environment):
