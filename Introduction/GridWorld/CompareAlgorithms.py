@@ -56,15 +56,12 @@ def plot_result(environment, agent, name):
     plt.show()
 
     print("Mean of V:{0} for {1} iterations.".format(mean_v[-1], len(mean_v)))
-    return {'mean': mean_v, 'reward':sum_of_reward, 'name': name}
+    return {'mean': mean_v, 'reward': sum_of_reward, 'name': name}
 
 
 if __name__ == '__main__':
     BOARD = Board(nb_trap=30, size=10)
     print(BOARD.render_board())
-
-    plt.imshow(BOARD.render_board_img())
-    plt.show()
 
     AGENT_DP = DP(BOARD, 0.001, 0.1)
     AGENT_MC = MCES(BOARD, 100, 0.1, 120)
@@ -75,23 +72,21 @@ if __name__ == '__main__':
     AGENT_ES = ExpectedSarsa(BOARD, Agent.E_Greedy(0.1), 0.1, 0.1, 100, 10000)
     AGENT_NS = OffPolicyNStepSarsa(BOARD, Agent.E_Greedy(0.1), 0.1, 0.1, 100, 3, 10000)
 
-    #SUMMARY = [plot_result(BOARD, AGENT_DP, "Dynamic Programming"),
-               #plot_result(BOARD, AGENT_MC, "Monte Carlo ES"),
-               #plot_result(BOARD, AGENT_SA, "Sarsa"),
-               #plot_result(BOARD, AGENT_QL, "Q-learning"),
-               #plot_result(BOARD, AGENT_QL, "Q-learning e greedy"),
-               #plot_result(BOARD, AGENT_DQ, "Double Q-learning"),
-               #plot_result(BOARD, AGENT_ES, "Expected Sarsa"),
-               #plot_result(BOARD, AGENT_NS, "N-step off-policy Sarsa")]
+    SUMMARY = [plot_result(BOARD, AGENT_DP, "Dynamic Programming"),
+               plot_result(BOARD, AGENT_MC, "Monte Carlo ES"),
+               plot_result(BOARD, AGENT_SA, "Sarsa"),
+               plot_result(BOARD, AGENT_QL, "Q-learning"),
+               plot_result(BOARD, AGENT_QLE, "Q-learning e greedy"),
+               plot_result(BOARD, AGENT_DQ, "Double Q-learning"),
+               plot_result(BOARD, AGENT_ES, "Expected Sarsa"),
+               plot_result(BOARD, AGENT_NS, "N-step off-policy Sarsa")]
 
-    #for algo in SUMMARY:
-    #    plt.plot(algo['mean'], label=algo['name'])
+    for algo in SUMMARY:
+        plt.plot(algo['mean'], label=algo['name'])
+    plt.legend()
+    plt.show()
 
-    #plt.legend()
-    #plt.show()
-
-    #for algo in SUMMARY:
-    #    plt.plot(algo['reward'], label=algo['name'])
-
-    #plt.legend()
-    #plt.show()
+    for algo in SUMMARY:
+        plt.plot(algo['reward'], label=algo['name'])
+    plt.legend()
+    plt.show()

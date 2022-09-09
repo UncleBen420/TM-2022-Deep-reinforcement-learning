@@ -1,3 +1,6 @@
+"""
+This file contains the classes implementing Monte Carlo method
+"""
 import random
 import numpy as np
 
@@ -6,7 +9,9 @@ from Environment.GridWorld import Action
 
 
 class MCES:
-
+    """
+    Implementation of a Monte Carlo exploratory search.
+    """
     def __init__(self, environment, episodes=1000, gamma=0.1, patience=100):
         self.environment = environment
         self.episodes = episodes
@@ -20,7 +25,13 @@ class MCES:
         self.nb_step_v = np.zeros((environment.size * environment.size))
 
     def fit(self, verbose=False):
-
+        """
+        This method fit the agent over n episode on the environment. It has a patience parameter
+        to ensure the algorithme is not stuck in infinite loop.
+        :param verbose: if true the function return the evolution
+        of the V function over the iteration.
+        :return: if true return the v function of multiple iteration, if false return nothing
+        """
         if verbose:
             history = []
             rewards = []
@@ -68,7 +79,7 @@ class MCES:
             for t in reversed(range(len(S) - 1)):
                 G = self.gamma * G + R[t + 1]
 
-                if not (S[t], A[t]) in already_visited:
+                if (S[t], A[t]) not in already_visited:
                     # version with incremental mean to reduce the memory cost
                     self.nb_step, self.Q = Agent.incremental_mean(G, S[t], A[t], self.nb_step, self.Q)
 

@@ -1,10 +1,9 @@
 """
-unit test for the bandit environment file
+unit test for the grid world implementation
 """
 import numpy as np
 import pytest
 
-from Environment import Agent
 from Environment.GridWorld import Board, Piece, Action, PieceRender
 
 
@@ -12,6 +11,9 @@ class TestGridWorld:
     """test class"""
 
     def test_init_board(self):
+        """
+        This method test the init_board method
+        """
         with pytest.raises(Exception) as e:
             board = Board(size=2, nb_trap=4)
             assert e.message == "number of trap cannot be greater or equal to the size"
@@ -23,6 +25,10 @@ class TestGridWorld:
         assert board.agent == (0, 0)
 
     def test_bfs(self):
+        """
+        test that the bfs method can indeed find if there is a path.
+        2 boards one with a path and one without are given to the bfs.
+        """
         board_test_success = [Piece.SOIL, Piece.SOIL, Piece.SOIL,
                               Piece.PIT, Piece.PIT, Piece.SOIL,
                               Piece.SOIL, Piece.GOAL, Piece.SOIL]
@@ -40,6 +46,11 @@ class TestGridWorld:
         assert not board.bfs()
 
     def test_move_agent(self):
+        """
+        test that the move agent function work well.
+        test also the limit case like the agent being in a wall.
+        """
+
         board = Board()
         old_position = board.agent
         board.move_agent(Action.LEFT)
@@ -82,6 +93,9 @@ class TestGridWorld:
         assert board.agent == (1, 1)
 
     def test_get_next_state(self):
+        """
+        Test the get_next_state function.
+        """
         board = Board(size=3)
         assert board.get_next_state(4, Action.LEFT) == 3
         assert board.get_next_state(4, Action.RIGHT) == 5
@@ -89,6 +103,9 @@ class TestGridWorld:
         assert board.get_next_state(4, Action.DOWN) == 7
 
     def test_get_reward(self):
+        """
+        Test the get reward function.
+        """
         board_grid = [Piece.SOIL, Piece.SOIL, Piece.SOIL,
                       Piece.PIT, Piece.PIT, Piece.SOIL,
                       Piece.SOIL, Piece.GOAL, Piece.SOIL]
@@ -101,22 +118,10 @@ class TestGridWorld:
         assert board.get_reward(6, Action.LEFT, 6) == -2
         assert board.get_reward(3, Action.LEFT, 3) == -12
 
-    def test_get_reward_with_agent(self):
-        board_grid = [Piece.SOIL, Piece.SOIL, Piece.SOIL,
-                      Piece.PIT, Piece.PIT, Piece.SOIL,
-                      Piece.SOIL, Piece.GOAL, Piece.SOIL]
-
-        board = Board(size=3)
-        board.states = board_grid
-        assert board.get_reward_with_agent(Action.RIGHT) == -1
-        assert board.get_reward_with_agent(Action.DOWN) == -11
-        assert board.get_reward_with_agent(Action.LEFT) == -11
-        assert board.get_reward_with_agent(Action.LEFT) == -12
-        assert board.get_reward_with_agent(Action.DOWN) == -1
-        assert board.get_reward_with_agent(Action.DOWN) == -2
-        assert board.get_reward_with_agent(Action.RIGHT) == 9
-
     def test_render_board(self):
+        """
+        Test the render board function.
+        """
         board_grid = [Piece.SOIL, Piece.SOIL, Piece.SOIL,
                       Piece.PIT, Piece.PIT, Piece.SOIL,
                       Piece.SOIL, Piece.GOAL, Piece.SOIL]
@@ -128,6 +133,10 @@ class TestGridWorld:
         assert board.render_board() == render
 
     def test_render_board_img(self):
+        """
+        Test the render_board_img function.
+        :return:
+        """
         board_grid = [Piece.SOIL, Piece.SOIL, Piece.SOIL,
                       Piece.PIT, Piece.PIT, Piece.SOIL,
                       Piece.SOIL, Piece.GOAL, Piece.SOIL]
@@ -140,8 +149,9 @@ class TestGridWorld:
         render3 = np.append(render3, PieceRender.EMPTY.value, axis=1)
         render = np.append(render, render2, axis=0)
         render = np.append(render, render3, axis=0).reshape((30, 30, 1))
+        render *= 255
 
         board = Board(size=3)
         board.states = board_grid
         board.agent = (0, 1)
-        np.testing.assert_array_equal(board.render_board_img(), render)
+        np.testing.assert_array_equal(board.render_board_img(1), render)

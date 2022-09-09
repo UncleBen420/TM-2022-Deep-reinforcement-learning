@@ -68,8 +68,11 @@ class QLearning:
         self.patience = patience
         # for evaluation
         self.V = np.zeros((environment.size * environment.size))
+        # for visualisation
+        self.trajectory = []
+        self.policy_history = []
 
-    def fit(self, verbose=False):
+    def fit(self, verbose=False, trajectory=False):
         if verbose:
             history = []
             rewards = []
@@ -80,7 +83,14 @@ class QLearning:
             if verbose:
                 reward = 0
 
+            # for visualisation
+            if trajectory:
+                self.policy_history.append(self.get_policy())
+
             for _ in range(self.patience):
+                # for visualisation
+                if trajectory:
+                    self.trajectory.append(S)
 
                 A = self.policy.chose_action(S)
                 S_prime = self.environment.get_next_state(S, Action(A))
