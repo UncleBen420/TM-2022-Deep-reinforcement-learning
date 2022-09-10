@@ -7,10 +7,10 @@ import numpy as np
 
 class BanditsGame:
     ''' this class provide an environment for an agent to be exposed to the k-bandit problem'''
-    def __init__(self, k, timestep, agent, verbose=True):
+    def __init__(self, k, timestep, verbose=True):
 
         self.timestep = timestep
-        self.agent = agent
+        self.agent = None
         self.bandits = np.random.uniform(0, 1, k)
         self.verbose = verbose
 
