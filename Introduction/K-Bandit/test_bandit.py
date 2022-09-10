@@ -15,7 +15,7 @@ class TestBanditGame:
         of the bandit to 1 or 0. this way we obtain expected behaviour."""
 
         agt = agent.RandomAgent(5)
-        bandit = BanditsGame(5, 100, agt, False)
+        bandit = BanditsGame(5, 100, False, agt)
         bandit.bandits = [1., 0., 0., 0., 0.]
         assert bandit.pull(0) == 1
         assert bandit.pull(1) == 0
