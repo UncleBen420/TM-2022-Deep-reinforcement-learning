@@ -13,13 +13,14 @@ from TemporalDifference.TD import Sarsa, QLearning, DoubleQLearning, ExpectedSar
 
 
 def plot_result(environment, agent, name):
-    '''
+    """
     Fit the agent over the environment and plot the result
     :param environment: the environment in which the agent can evolve
     :param agent: agent object with function fit.
     :param name: the name of the algorithme that will be implemented
     :return: the name and the mean v over n episode.
-    '''
+    """
+
     expected_rewards, sum_of_reward = agent.fit(True)
     random_agent = RandomPolicyAgent(environment)
     random_v = random_agent.generate_t_policy_validations(len(expected_rewards))
@@ -65,12 +66,12 @@ if __name__ == '__main__':
 
     AGENT_DP = DP(BOARD, 0.001, 0.1)
     AGENT_MC = MCES(BOARD, 100, 0.1, 120)
-    AGENT_SA = Sarsa(BOARD, Agent.E_Greedy(0.1), 0.1, 0.1, 100, 10000)
+    AGENT_SA = Sarsa(BOARD, Agent.E_Greedy(0.05), 0.1, 0.1, 100, 10000)
     AGENT_QL = QLearning(BOARD, Agent.UCB(0.9), 0.1, 0.1, 100, 10000)
-    AGENT_QLE = QLearning(BOARD, Agent.E_Greedy(0.1), 0.1, 0.1, 100, 10000)
-    AGENT_DQ = DoubleQLearning(BOARD, Agent.E_Greedy(0.1), 0.1, 0.1, 100, 10000)
-    AGENT_ES = ExpectedSarsa(BOARD, Agent.E_Greedy(0.1), 0.1, 0.1, 100, 10000)
-    AGENT_NS = OffPolicyNStepSarsa(BOARD, Agent.E_Greedy(0.1), 0.1, 0.1, 100, 3, 10000)
+    AGENT_QLE = QLearning(BOARD, Agent.E_Greedy(0.05), 0.1, 0.1, 100, 10000)
+    AGENT_DQ = DoubleQLearning(BOARD, Agent.E_Greedy(0.05), 0.1, 0.1, 100, 10000)
+    AGENT_ES = ExpectedSarsa(BOARD, Agent.E_Greedy(0.05), 0.1, 0.1, 100, 10000)
+    AGENT_NS = OffPolicyNStepSarsa(BOARD, Agent.E_Greedy(0.05), 0.1, 0.1, 100, 10000, 3)
 
     SUMMARY = [plot_result(BOARD, AGENT_DP, "Dynamic Programming"),
                plot_result(BOARD, AGENT_MC, "Monte Carlo ES"),

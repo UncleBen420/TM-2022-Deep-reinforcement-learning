@@ -13,7 +13,7 @@ class OffPolicyNStepSarsa:
     """
 
     def __init__(self, environment, policy, alpha=0.1, gamma=0.1,
-                 episodes=1000, steps=4, patience=200):
+                 episodes=1000, patience=200, steps=4):
         self.environment = environment
         self.a = alpha
         self.gamma = gamma
