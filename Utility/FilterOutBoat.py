@@ -24,6 +24,7 @@ if __name__ == '__main__':
     stored_label_path = os.path.join(args.out_path, "labels")
 
     if os.path.exists(stored_image_path) or os.path.exists(stored_label_path):
+        print("already exist")
         exit(-1)
 
     os.makedirs(stored_image_path)
@@ -49,4 +50,6 @@ if __name__ == '__main__':
                     print('ship label found')
                 else:
                     print('ship label not found')
+        else:
+            print("image not found")
 
