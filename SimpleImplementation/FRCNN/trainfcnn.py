@@ -102,7 +102,7 @@ def train(path_train, path_test, path_saved_model, weights, num_epochs):
     return model, history
 
 
-def predict(image, model, detection_threshold, device="cpu"):
+def predict(image, model, detection_threshold):
     """
     Predict the output of an image after forward pass through
     the model and return the bounding boxes, class names, and
@@ -113,7 +113,7 @@ def predict(image, model, detection_threshold, device="cpu"):
         # mobilenet use a special normalisation
         #transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
-
+    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     # transform the image to tensor
     image = transform(image).to(device)
     # add a batch dimension
