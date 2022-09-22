@@ -165,7 +165,8 @@ if __name__ == '__main__':
         args.weights = ""
 
     model, history = train(args.train_path, args.test_path, args.saved_model_path, args.weights, int(args.epochs))
-    test_image = random.choice([x for x in os.listdir(args.test_path) if os.path.isfile(os.path.join(args.test_path, x))])
+    test_image = random.choice([x for x in os.listdir(os.path.join(args.test_path,'images'))
+                                if os.path.isfile(os.path.join(os.path.join(args.test_path,'images'), x))])
 
     bboxes = predict(test_image, model, 0.5)
     test_image = draw_boxes(bboxes, test_image)
