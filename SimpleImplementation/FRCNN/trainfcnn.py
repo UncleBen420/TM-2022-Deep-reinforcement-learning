@@ -95,7 +95,7 @@ def train(path_train, path_test, path_saved_model, weights, num_epochs):
         # evaluate on the test dataset
         evaluate(model, data_loader_test, device=device)
 
-    torch.save(model.state_dict(), path_saved_model)
+    torch.save(model.state_dict(), os.path.join(path_saved_model,"weights"))
 
     history = {key: [i[key] for i in history] for key in history[0]}
 
