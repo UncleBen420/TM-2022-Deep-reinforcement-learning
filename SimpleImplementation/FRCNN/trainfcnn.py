@@ -172,7 +172,7 @@ if __name__ == '__main__':
     test_image = draw_boxes(bboxes, test_image)
     print(bboxes)
 
-    for key, loss in history.items:
+    for key, loss in history.items():
         plt.plot(loss, label=key)
     plt.show()
 
