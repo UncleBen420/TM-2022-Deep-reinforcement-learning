@@ -9,7 +9,7 @@ import torchvision
 from PIL import Image
 from matplotlib import pyplot as plt
 from torchvision import transforms
-from torchvision.models.detection.faster_rcnn import FastRCNNPredictor, FasterRCNN_MobileNet_V3_Large_320_FPN_Weights
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 
 from DOTADatasetLoader import DOTA
 from engine import train_one_epoch, evaluate
@@ -31,7 +31,6 @@ def get_transform(train):
 
 def get_instance_segmentation_model(num_classes, weights_path=""):
     # load an instance segmentation model pre-trained on COCO
-    weights = FasterRCNN_MobileNet_V3_Large_320_FPN_Weights.DEFAULT
     model = torchvision.models.detection.fasterrcnn_mobilenet_v3_large_320_fpn(pretrained=True)
 
     # get the number of input features for the classifier
