@@ -32,7 +32,7 @@ def get_transform(train):
 def get_instance_segmentation_model(num_classes, weights_path=""):
     # load an instance segmentation model pre-trained on COCO
     weights = FasterRCNN_MobileNet_V3_Large_320_FPN_Weights.DEFAULT
-    model = torchvision.models.detection.fasterrcnn_mobilenet_v3_large_320_fpn(weights=weights)
+    model = torchvision.models.detection.fasterrcnn_mobilenet_v3_large_320_fpn(pretrained=True)
 
     # get the number of input features for the classifier
     in_features = model.roi_heads.box_predictor.cls_score.in_features
