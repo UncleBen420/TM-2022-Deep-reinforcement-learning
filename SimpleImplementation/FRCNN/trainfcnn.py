@@ -21,7 +21,7 @@ def get_transform(train):
     transforms = []
     # converts the image, a PIL image, into a PyTorch Tensor
     transforms.append(T.ToTensor())
-    transforms.append(T.NormalizeMobileNet())
+    #transforms.append(T.NormalizeMobileNet())
     if train:
         # during training, randomly flip the training images
         # and ground-truth for data augmentation
@@ -111,7 +111,7 @@ def predict(image, model, detection_threshold, device="cpu"):
     transform = transforms.Compose([
         transforms.ToTensor(),
         # mobilenet use a special normalisation
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        #transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
     # transform the image to tensor
