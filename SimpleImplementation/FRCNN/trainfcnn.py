@@ -45,7 +45,7 @@ def get_instance_segmentation_model(num_classes, weights_path=""):
     return model
 
 
-def train(path_train, path_test, path_saved_model, num_epochs, device="cpu"):
+def train(path_train, path_test, path_saved_model, weights, num_epochs):
     # use our dataset and defined transformations
     dataset = DOTA(path_train, get_transform(train=True))
     dataset_test = DOTA(path_test, get_transform(train=False))
@@ -65,7 +65,7 @@ def train(path_train, path_test, path_saved_model, num_epochs, device="cpu"):
     num_classes = 2
 
     # get the model using our helper function
-    model = get_instance_segmentation_model(num_classes)
+    model = get_instance_segmentation_model(num_classes, weights)
     # move model to the right device
     model.to(device)
 
@@ -155,6 +155,8 @@ if __name__ == '__main__':
                         help='the path to the data. it must contains a images and a labels folder')
     parser.add_argument('-ts', '--test_path',
                         help='the path to the data. it must contains a images and a labels folder')
+    parser.add_argument('-o', '--saved_model_path',
+                        help='the path where the model will be saved')
     parser.add_argument('-w', '--weights', help='the path to the weights if needed')
     parser.add_argument('-e', '--epochs', help=' number of epochs')
 
@@ -163,7 +165,7 @@ if __name__ == '__main__':
     if args.weights is None:
         args.weights = ""
 
-    model, history = train(args.train_path, args.test_path, args.weights, int(args.epochs))
+    model, history = train(args.train_path, args.test_path, args.saved_model_path, args.weights, int(args.epochs))
     test_image = random.choice([x for x in os.listdir(args.test_path) if os.path.isfile(os.path.join(args.test_path, x))])
 
     bboxes = predict(test_image, model, 0.5)
