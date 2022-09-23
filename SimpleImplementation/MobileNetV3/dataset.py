@@ -72,7 +72,7 @@ class dataset_dota(torch.utils.data.Dataset):
         if self.transform:
             img = self.transform(img)
 
-        label = torch.as_tensor(label)
+        label = torch.as_tensor(int(label))
 
         return img, label
 
