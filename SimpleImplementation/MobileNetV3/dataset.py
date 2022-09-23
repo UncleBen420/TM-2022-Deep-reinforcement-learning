@@ -14,7 +14,7 @@ from albumentations.pytorch import ToTensorV2
 ROOT_DIR = '../input/GTSRB_Final_Training_Images/GTSRB/Final_Training/Images'
 VALID_SPLIT = 0.1
 RESIZE_TO = 224  # Image size of resize when applying transforms.
-BATCH_SIZE = 128
+BATCH_SIZE = 64
 NUM_WORKERS = 4  # Number of parallel processes for data preparation.
 
 
