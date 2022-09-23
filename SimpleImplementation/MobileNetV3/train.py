@@ -20,6 +20,7 @@ def train(
     counter = 0
     iters = len(trainloader)
     for i, data in tqdm(enumerate(trainloader), total=len(trainloader)):
+        torch.cuda.empty_cache()
         counter += 1
         image, labels = data
         image = image.to(device)
