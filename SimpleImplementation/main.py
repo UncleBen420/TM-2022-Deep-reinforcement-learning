@@ -1,23 +1,9 @@
-# This is a sample Python script.
-from PIL import Image
-from matplotlib import pyplot as plt
-
-from FRCNN.trainfcnn import train, predict, draw_boxes
-
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
-
+import cv2
+import re
 
 if __name__ == '__main__':
-    model, history = train("/media/remy/LaCie/TM/Dota/FRCNN/train", "/media/remy/LaCie/TM/Dota/FRCNN/test", "/media/remy/LaCie/TM/Dota/FRCNN/weights", 20)
-    image = Image.open("/media/remy/LaCie/TM/Dota/FRCNN/test/images/P2059_9.png")
-    bboxes = predict(image, model, 0.5)
-    image = draw_boxes(bboxes, image)
-    print(bboxes)
 
-    for key, loss in history.items:
-        plt.plot(loss, label=key)
-    plt.show()
 
-    plt.imshow(image)
-    plt.show()
+    cv_info = [re.sub('\s+', ' ', ci.strip()) for ci in cv2.getBuildInformation().strip().split('\n')
+               if len(ci) > 0 and re.search(r'(nvidia*:?)|(cuda*:)|(cudnn*:)', ci.lower()) is not None]
+    print(cv2.getBuildInformation())
