@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 
 import numpy as np
 
+classes = {}
+
 
 class BoundingBox:
     def __init__(self, points):
@@ -60,26 +62,49 @@ def label_to_yolo_format(labels):
 
 def generate_yolo_X_Y(img, labels, nb_sub_img, out_dir_label, out_dir_img, name):
     text_label_file = ""
-    for i in range(nb_sub_img):
+    background_count = 0
+    normal_count = 0
+    patience = 0
+    while True:
         sub_img, x_pad, y_pad = generate_random_image(img)
         sub_labels = sub_image_label(labels, x_pad, y_pad)
         sub_labels = label_to_yolo_format(sub_labels)
 
         text_label_file = ""
+        nb_boat = 0
         for label in sub_labels:
+            if label[0] == classes['ship']:
+                nb_boat += 1
             text_label_file += (str(label[0]) + ' '
                                 + str(label[1]) + ' '
                                 + str(label[2]) + ' '
                                 + str(label[3]) + ' '
                                 + str(label[4]) + '\n')
+
         # if there is no object in image, it creates a background image
-        if text_label_file != "":
-            label_filename = name + '_' + str(i) + '.txt'
+        if text_label_file == "" and background_count < 2:
+            background_count += 1
+            img_filename = 'b_' + name + '_' + str(background_count) + '.png'
+            cv2.imwrite(os.path.join(out_dir_img, img_filename), sub_img)
+        elif text_label_file == "" and background_count >= 2:
+            continue
+
+        if nb_boat > 0:
+            print("there is a boat")
+            label_filename = name + '_' + str(normal_count) + '.txt'
             with open(os.path.join(out_dir_label, label_filename), "w") as myfile:
                 myfile.write(text_label_file)
+                img_filename = name + '_' + str(normal_count) + '.png'
+                cv2.imwrite(os.path.join(out_dir_img, img_filename), sub_img)
+                normal_count += 1
+                if normal_count == nb_sub_img:
+                    break
 
-        img_filename = name + '_' + str(i) + '.png'
-        cv2.imwrite(os.path.join(out_dir_img, img_filename), sub_img)
+        patience += 1
+
+        if patience >= 1000:
+            break
+
 
 
 if __name__ == '__main__':
@@ -104,7 +129,7 @@ if __name__ == '__main__':
     img_list = os.listdir(args.img_path)
     label_list = os.listdir(args.label_path)
     # get all the class possible
-    classes = {}
+
     image_filename = ""
     for filename in label_list:
 
@@ -127,8 +152,8 @@ if __name__ == '__main__':
                 if len(data) != 10:
                     continue
 
-                if data[-2] != 'ship':
-                    continue
+                if data[-2] != 'ship' and data[-2] != 'harbor':
+                    data[-2] = 'not_ship'
 
                 label = data[-2]
                 points = np.zeros((4, 2))
