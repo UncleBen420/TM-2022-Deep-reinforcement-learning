@@ -1,11 +1,17 @@
+from time import sleep
+
 import cv2
 import re
 
 import numpy as np
 from matplotlib import pyplot as plt
+from tqdm import tqdm
 
-from DummyExperiment.Agents import DummyAgent, QLearning, E_Greedy, MonteCarloOnPolicy, NStepSarsa
-from DummyExperiment.EnvironmentDummySoft import DummyEnv
+from DummyExperiment import EnvironmentDummySoft
+from DummyExperiment import EnvironmentDummyHard
+
+from DummyExperiment.Agents import DummyAgent, QLearning, E_Greedy, MonteCarloOnPolicy, NStepSarsa, ExploitAgent, UCB
+
 
 def plot_result(agent, name):
     """
@@ -16,29 +22,22 @@ def plot_result(agent, name):
     :return: the name and the mean v over n episode.
     """
 
-    expected_rewards, sum_of_reward = agent.fit(True)
+    mean_v, sum_of_reward = agent.fit()
 
-    fig, axs = plt.subplots(nrows=4, ncols=1)
+    fig, axs = plt.subplots(nrows=2, ncols=1)
     fig.suptitle(name)
     fig.tight_layout(h_pad=3, w_pad=3)
 
-    mean_v = np.mean(expected_rewards, axis=1)
+    axs[0].plot(mean_v, label=name)
+    axs[0].set_title('Mean V of the agent')
+    axs[0].set_xlabel('nb iteration')
+    axs[0].set_ylabel('mean of V')
+    axs[0].legend()
 
-    #axs[0].plot(expected_rewards)
-    #axs[0].set_title('Agent V function')
-    #axs[0].set_xlabel('nb iteration')
-    #axs[0].set_ylabel('V for every state')
-
-    axs[2].plot(mean_v, label=name)
-    axs[2].set_title('Mean V of the agent')
-    axs[2].set_xlabel('nb iteration')
-    axs[2].set_ylabel('mean of V')
-    axs[2].legend()
-
-    axs[3].plot(sum_of_reward)
-    axs[3].set_title('Agent accumulated rewards')
-    axs[3].set_xlabel('nb iteration')
-    axs[3].set_ylabel('sum of reward')
+    axs[1].plot(sum_of_reward)
+    axs[1].set_title('Agent accumulated rewards')
+    axs[1].set_xlabel('nb iteration')
+    axs[1].set_ylabel('sum of reward')
 
     plt.show()
 
@@ -47,7 +46,9 @@ def plot_result(agent, name):
 
 
 if __name__ == '__main__':
-    de = DummyEnv(nb_max_actions=30000)
+
+    de = EnvironmentDummySoft.DummyEnv(nb_max_actions=1000)
+    #de = EnvironmentDummyHard.DummyEnv(nb_max_actions=30000)
 
     de.init_env()
     print(de.render_grid(de.grid))
@@ -59,20 +60,20 @@ if __name__ == '__main__':
     #de.get_gif_trajectory("dummy_agent.gif")
     #plt.show()
 
-    ql = QLearning(de, E_Greedy(0.2), episodes=20)
+    ql = QLearning(de, E_Greedy(0.05), episodes=1000)
     plot_result(ql, "Q-Learning")
     plt.imshow(de.render_board_img(de.marked_map, [1, 0, 0]))
-    #de.get_gif_trajectory("dummy_agent.gif")
+    de.get_gif_trajectory("dummy_agent_ql.gif")
     plt.show()
 
-    #mc = MonteCarloOnPolicy(de, E_Greedy(0.1), episodes=100)
+    #mc = MonteCarloOnPolicy(de, E_Greedy(0.05), episodes=1000)
     #plot_result(mc, "MC")
     #plt.imshow(de.render_board_img(de.marked_map, [1, 0, 0]))
     #de.get_gif_trajectory("dummy_agent_mc.gif")
     #plt.show()
 
-    #ns = NStepSarsa(de, E_Greedy(0.1), episodes=20, steps=3)
+    #ns = NStepSarsa(de, E_Greedy(0.1), episodes=1000, steps=4)
     #plot_result(ns, "ns")
     #plt.imshow(de.render_board_img(de.marked_map, [1, 0, 0]))
-    #de.get_gif_trajectory("dummy_agent_mc.gif")
+    #de.get_gif_trajectory("dummy_agent_ns.gif")
     #plt.show()

@@ -2,6 +2,42 @@ import random
 from abc import ABC, abstractmethod
 
 import numpy as np
+from tqdm import tqdm
+
+
+class ExploitAgent:
+    def __init__(self, environment, Q, alpha=0.1, gamma=0.1 ):
+        self.environment = environment
+        self.policy = Greedy()
+        self.policy.set_agent(self)
+        self.Q = Q
+        self.V = np.zeros(environment.get_nb_state())
+        self.a = alpha
+        self.gamma = gamma
+
+    def predict(self):
+
+        S = self.environment.reload_env()
+        reward = 0
+
+        while True:
+            # for visualisation
+
+            A = self.policy.chose_action(S)
+            S_prime, R, is_terminal = self.environment.take_action(A)
+
+            # evaluation of V
+            self.V[S] += self.a * (R + self.gamma * self.V[S_prime] - self.V[S])
+            S = S_prime
+
+            reward += R
+
+            if is_terminal:
+                break
+
+        return self.V.copy()
+        return reward
+
 
 class QLearning:
 
@@ -10,8 +46,7 @@ class QLearning:
         self.a = alpha
         self.gamma = gamma
         self.episodes = episodes
-        self.Q = np.random.randint(environment.nb_action, size=(environment.get_nb_state()
-                                   * environment.nb_action)).reshape(environment.get_nb_state(), environment.nb_action)
+        self.Q = np.zeros((environment.get_nb_state(), environment.nb_action))
         self.policy = policy
         self.policy.set_agent(self)
         # for evaluation
@@ -19,40 +54,40 @@ class QLearning:
         # for visualisation
         self.policy_history = []
 
-    def fit(self, verbose=False):
-        if verbose:
-            history = []
-            rewards = []
+    def fit(self):
 
-        for _ in range(self.episodes):
+        mean_v = []
+        rewards = []
 
-            S = self.environment.reload_env()
-            if verbose:
+        with tqdm(range(self.episodes), unit="episode") as episode:
+            for _ in episode:
+
+                S = self.environment.reload_env()
+
                 reward = 0
 
-            while True:
-                # for visualisation
+                while True:
+                    # for visualisation
 
-                A = self.policy.chose_action(S)
-                S_prime, R, is_terminal = self.environment.take_action(A)
+                    A = self.policy.chose_action(S)
+                    S_prime, R, is_terminal = self.environment.take_action(A)
 
-                self.Q[S][A] += self.a * (R + self.gamma * np.max(self.Q[S_prime]) - self.Q[S][A])
-                # evaluation of V
-                self.V[S] += self.a * (R + self.gamma * self.V[S_prime] - self.V[S])
-                S = S_prime
+                    self.Q[S][A] += self.a * (R + self.gamma * np.max(self.Q[S_prime]) - self.Q[S][A])
+                    # evaluation of V
+                    self.V[S] += self.a * (R + self.gamma * self.V[S_prime] - self.V[S])
+                    S = S_prime
 
-                if verbose:
                     reward += R
 
-                if is_terminal:
-                    break
+                    if is_terminal:
+                        break
 
-            if verbose:
-                history.append(self.V.copy())
-                rewards.append(reward)
+                    mv = np.mean(self.V)
+                    mean_v.append(mv)
+                    rewards.append(reward)
+                    episode.set_postfix(mean_v=mv, rewards=reward)
 
-        if verbose:
-            return history, rewards
+            return mean_v, rewards
 
     def get_policy(self):
         return np.argmax(self.Q, axis=1)
@@ -96,48 +131,47 @@ class NStepSarsa:
         self.Q[Sr][Ar] += self.a * (G - self.Q[Sr][Ar])
         self.V[Sr] += self.a * (Gv - self.V[Sr])
 
-    def fit(self, verbose=False):
+    def fit(self):
         """
         fit is called to train the agent on the environment
         :param verbose: True to have a history of the V function and the accumulated reward
         :return: return the history of V and accumulated reward if verbose == True
         """
-        if verbose:
-            history = []
-            rewards = []
+        mean_v = []
+        rewards = []
 
-        for _ in range(self.episodes):
+        with tqdm(range(self.episodes), unit="episode") as episode:
+            for _ in episode:
 
-            if verbose:
                 reward = 0
 
-            S = self.environment.reload_env()
-            self.trajectory.append((S, self.policy.chose_action(S), 0))
-            while True:
+                S = self.environment.reload_env()
+                self.trajectory.append((S, self.policy.chose_action(S), 0))
+                while True:
 
-                S, A, _ = self.trajectory[-1]
+                    S, A, _ = self.trajectory[-1]
 
-                S_prime, R_prime, is_terminal = self.environment.take_action(A)
-                A_prime = self.policy.chose_action(S_prime)
-                self.trajectory.append((S_prime, A_prime, R_prime))
-                self.is_terminal = is_terminal
+                    S_prime, R_prime, is_terminal = self.environment.take_action(A)
+                    A_prime = self.policy.chose_action(S_prime)
+                    self.trajectory.append((S_prime, A_prime, R_prime))
+                    self.is_terminal = is_terminal
 
-                if verbose:
                     reward += R_prime
 
-                if len(self.trajectory) > self.n:
-                    self.updade_q()
-
-                if self.is_terminal:
-                    while len(self.trajectory) > 1:
+                    if len(self.trajectory) > self.n:
                         self.updade_q()
-                    break
 
-            if verbose:
-                history.append(self.V.copy())
+                    if self.is_terminal:
+                        while len(self.trajectory) > 1:
+                            self.updade_q()
+                        break
+
+                mv = np.mean(self.V)
+                mean_v.append(mv)
                 rewards.append(reward)
-        if verbose:
-            return history, rewards
+                episode.set_postfix(mean_v=mv, rewards=reward)
+
+        return mean_v, rewards
 
     def get_policy(self):
         """
@@ -156,15 +190,15 @@ class MonteCarloOnPolicy:
         self.episodes = episodes
         self.gamma = gamma
         self.patience = patience
-        self.policy = policy
-        self.policy.set_agent(self)
         self.Q = np.zeros((environment.get_nb_state(), environment.nb_action))
         self.nb_step = np.zeros((environment.get_nb_state(), environment.nb_action))
+        self.policy = policy
+        self.policy.set_agent(self)
         # for evaluation
         self.V = np.zeros(environment.get_nb_state())
         self.nb_step_v = np.zeros(environment.get_nb_state())
 
-    def fit(self, verbose=False):
+    def fit(self):
         """
         This method fit the agent over n episode on the environment. It has a patience parameter
         to ensure the algorithme is not stuck in infinite loop.
@@ -172,51 +206,48 @@ class MonteCarloOnPolicy:
         of the V function over the iteration.
         :return: if true return the v function of multiple iteration, if false return nothing
         """
-        if verbose:
-            history = []
-            rewards = []
+        mean_v = []
+        rewards = []
 
-        for _ in range(self.episodes):
-
-            if verbose:
+        with tqdm(range(self.episodes), unit="episode") as episode:
+            for _ in episode:
                 reward = 0
 
-            S = self.environment.reload_env()
-            A = self.policy.chose_action(S)
-            trajectory = []
+                S = self.environment.reload_env()
+                A = self.policy.chose_action(S)
+                trajectory = []
 
-            # Generate episode
-            while True:
-                S_prime, R_prime, is_terminal = self.environment.take_action(A)
-                A_prime = self.policy.chose_action(S_prime)
-                trajectory.append((S, A, R_prime))
-                S = S_prime
-                A = A_prime
+                # Generate episode
+                while True:
+                    S_prime, R_prime, is_terminal = self.environment.take_action(A)
+                    A_prime = self.policy.chose_action(S_prime)
+                    trajectory.append((S, A, R_prime))
+                    S = S_prime
+                    A = A_prime
 
-                if verbose:
                     reward += R_prime
 
-                if is_terminal:
-                    break
+                    if is_terminal:
+                        break
 
-            G = 0  # accumulated reward
-            first_visit = []
-            for step in trajectory[::-1]:
-                S, A, R = step
-                G = self.gamma * G + R
+                G = 0  # accumulated reward
+                first_visit = []
+                for step in trajectory[::-1]:
+                    S, A, R = step
+                    G = self.gamma * G + R
 
-                if step not in first_visit:
-                    # version with incremental mean to reduce the memory cost
-                    self.nb_step, self.Q = incremental_mean(G, S, A, self.nb_step, self.Q)
-                    self.nb_step_v, self.V = incremental_mean_V(G, S, self.nb_step_v, self.V)
-                    first_visit.append(step)
+                    if step not in first_visit:
+                        # version with incremental mean to reduce the memory cost
+                        self.nb_step, self.Q = incremental_mean(G, S, A, self.nb_step, self.Q)
+                        self.nb_step_v, self.V = incremental_mean_V(G, S, self.nb_step_v, self.V)
+                        first_visit.append(step)
 
-            if verbose:
-                history.append(self.V.copy())
+                mv = np.mean(self.V)
+                mean_v.append(mv)
                 rewards.append(reward)
+                episode.set_postfix(mean_v=mv, rewards=reward)
 
-        if verbose:
-            return history, rewards
+        return mean_v, rewards
 
 
 class DummyAgent:

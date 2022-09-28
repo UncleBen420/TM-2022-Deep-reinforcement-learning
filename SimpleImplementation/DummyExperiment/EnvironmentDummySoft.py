@@ -56,9 +56,10 @@ class DummyEnv:
         self.size = size
         self.model_resolution = model_resolution
         self.max_zoom = max_zoom
-        self.zoom_factor = max_zoom - 1
+        self.z = max_zoom - 1
+        self.x = 0
+        self.y = 0
         # (x, y)
-        self.move_factor = [0, 0]
         self.sub_grid = None
         # State of the environment
         self.dummy_boat_model = None
@@ -70,11 +71,11 @@ class DummyEnv:
             if i is Piece.BOAT:
                 # simulate a neural network, the more the agent zoom the more the probability of
                 # seeing the boat increase
-                if not np.random.binomial(1, 9. * (10 ** (-1 * self.zoom_factor))):
+                if not np.random.binomial(1, 9. * (10 ** (-1 * self.z))):
                     i = Piece.WATER
             elif i is Piece.HOUSE:
                 # simulate a case where the model mistake a house for a boat
-                if not np.random.binomial(1, 9. * (10 ** (-1 * self.zoom_factor))):
+                if not np.random.binomial(1, 9. * (10 ** (-1 * self.z))):
                     i = Piece.GROUND
                 #elif np.random.binomial(1, 0.05):
                 #    i = Piece.BOAT
@@ -91,27 +92,9 @@ class DummyEnv:
         self.marked = []
         self.marked_map = np.zeros((self.size, self.size), dtype=bool)
         self.nb_actions_taken = 0
-        self.move_factor = [0, 0]
-        self.zoom_factor = self.max_zoom - 1
-        self.compute_sub_grid()
-        self.fit_dummy_model()
-        self.get_vision()
-
-        return self.get_current_state()
-
-    def reload_env_random_state(self):
-        del self.history
-        del self.marked
-        del self.marked_map
-
-        self.history = []
-        self.marked = []
-        self.marked_map = np.zeros((self.size, self.size), dtype=bool)
-        self.nb_actions_taken = 0
-        self.zoom_factor = random.randint(1, self.max_zoom - 1)
-        self.move_factor = [random.randint(0, self.size - 1) / self.zoom_factor,
-                            random.randint(0, self.size - 1) / self.zoom_factor]
-
+        self.z = random.randint(1, self.max_zoom - 1)
+        self.x = random.randint(0, self.size / (self.model_resolution ** self.z) - 1)
+        self.y = random.randint(0, self.size / (self.model_resolution ** self.z) - 1)
         self.compute_sub_grid()
         self.fit_dummy_model()
         self.get_vision()
@@ -168,41 +151,42 @@ class DummyEnv:
     def compute_sub_grid(self):
 
         #pad = self.model_resolution ** (self.zoom_factor - 1)
-        window = self.model_resolution ** self.zoom_factor
-        self.sub_grid = self.grid[window * self.move_factor[0]:window + window * self.move_factor[0]
-        , window * self.move_factor[1]:window + window * self.move_factor[1]]
+        window = self.model_resolution ** self.z
+        self.sub_grid = self.grid[window * self.x:window + window * self.x, window * self.y:window + window * self.y]
 
     def get_vision(self):
-        move_set = [(self.move_factor[0] - 1, self.move_factor[1], self.zoom_factor),
-                    (self.move_factor[0] + 1, self.move_factor[1], self.zoom_factor),
-                    (self.move_factor[0], self.move_factor[1] - 1, self.zoom_factor),
-                    (self.move_factor[0], self.move_factor[1] + 1, self.zoom_factor),
-                    (self.move_factor[0], self.move_factor[1], self.zoom_factor - 1),
-                    (self.move_factor[0], self.move_factor[1], self.zoom_factor + 1),
-                    (self.move_factor[0], self.move_factor[1], self.zoom_factor)]
+        move_set = [(self.x - 1, self.y, self.z),
+                    (self.x + 1, self.y, self.z),
+                    (self.x, self.y - 1, self.z),
+                    (self.x, self.y + 1, self.z),
+                    (self.x, self.y, self.z - 1),
+                    (self.x, self.y, self.z + 1),
+                    (self.x, self.y, self.z)]
         # check if a place had already been visited or marked
         for i in range(7):
-            self.vision[i] = (Event.VISITED.value if move_set[i] in self.history
-                              else Event.UNKNOWN.value)
-            self.vision[i] = (Event.MARKED.value if move_set[i] in self.marked
-                              else self.vision[i])
+            if move_set[i] in self.history:
+                self.vision[i] = Event.VISITED.value
+            elif move_set[i] in self.marked:
+                self.vision[i] = Event.MARKED.value
+            else:
+                self.vision[i] = Event.UNKNOWN.value
 
-        self.vision[0] = Event.BLOCKED.value if self.move_factor[0] <= 0 else self.vision[0]
-        self.vision[1] = Event.BLOCKED.value if (self.move_factor[0] + 1) >= self.size / (
-                self.model_resolution ** self.zoom_factor) else self.vision[1]
+        self.vision[0] = Event.BLOCKED.value if self.x <= 0 else self.vision[0]
+        self.vision[1] = Event.BLOCKED.value if (self.x + 1) >= self.size / (
+                self.model_resolution ** self.z) else self.vision[1]
 
-        self.vision[2] = Event.BLOCKED.value if self.move_factor[1] <= 0 else self.vision[2]
-        self.vision[3] = Event.BLOCKED.value if (self.move_factor[1] + 1) >= self.size / (
-                self.model_resolution ** self.zoom_factor) else self.vision[3]
+        self.vision[2] = Event.BLOCKED.value if self.y <= 0 else self.vision[2]
+        self.vision[3] = Event.BLOCKED.value if (self.y + 1) >= self.size / (
+                self.model_resolution ** self.z) else self.vision[3]
 
-        self.vision[4] = Event.BLOCKED.value if self.zoom_factor - 1 <= 0 else self.vision[4]
-        self.vision[5] = Event.BLOCKED.value if self.zoom_factor + 1 >= self.max_zoom else self.vision[5]
+        self.vision[4] = Event.BLOCKED.value if self.z - 1 <= 0 else self.vision[4]
+        self.vision[5] = Event.BLOCKED.value if self.z + 1 >= self.max_zoom else self.vision[5]
 
     def fit_dummy_model(self):
         proba = self.get_probabilities(self.sub_grid)
         self.dummy_boat_model = 1 if np.count_nonzero(proba == Piece.BOAT) else 0
-        self.dummy_surface_model = 1 if np.count_nonzero(proba == Piece.WATER) > np.count_nonzero(
-            proba == Piece.GROUND) else 0
+        self.dummy_surface_model = int(np.count_nonzero(proba == Piece.WATER) > np.count_nonzero(
+            proba == Piece.GROUND))
 
     def get_current_state(self):
         return \
@@ -214,54 +198,51 @@ class DummyEnv:
         return self.states.size
 
     def mark(self):
-        self.marked.append((self.move_factor[0], self.move_factor[1], self.zoom_factor))
+        self.marked.append((self.x, self.y, self.z))
 
     def get_marked_map(self):
-        window = self.model_resolution ** self.zoom_factor
-        self.marked_map[window * self.move_factor[0]:window + window * self.move_factor[0]
-        , window * self.move_factor[1]:window + window * self.move_factor[1]] = True
+        window = self.model_resolution ** self.z
+        self.marked_map[window * self.x:window + window * self.x, window * self.y:window + window * self.y] = True
 
     def get_remaining_piece(self, piece):
         total_piece = np.count_nonzero(self.grid == piece)
         marked_piece = np.count_nonzero(self.grid[self.marked_map] == piece)
         return total_piece - marked_piece
 
-    def get_reward(self, action, is_terminal):
+    def get_reward(self, action):
         reward = -1
+
         if action == Action.MARK and not self.marked[-1] in self.marked[:-1]:
             reward += np.count_nonzero(self.sub_grid == Piece.BOAT) * 10
             reward -= np.count_nonzero(self.sub_grid == Piece.HOUSE) * 10
         elif action == Action.MARK:
-            reward -100
+            reward -= 100
 
         if self.history[-1] in self.history[:-1]:
             reward -= 10
-
-        if is_terminal:
-            print(self.nb_actions_taken)
 
         return reward
 
     def take_action(self, action):
         action = Action(action)
 
-        self.history.append((self.move_factor[0], self.move_factor[1], self.zoom_factor))
+        self.history.append((self.x, self.y, self.z))
 
         if action == Action.LEFT:
-            self.move_factor[0] -= 1 if self.vision[0] != Event.BLOCKED.value else 0
+            self.x -= 1 if self.vision[0] != Event.BLOCKED.value else 0
         elif action == Action.UP:
-            self.move_factor[1] -= 1 if self.vision[2] != Event.BLOCKED.value else 0
+            self.y -= 1 if self.vision[2] != Event.BLOCKED.value else 0
         elif action == Action.RIGHT:
-            self.move_factor[0] += 1 if self.vision[1] != Event.BLOCKED.value else 0
+            self.x += 1 if self.vision[1] != Event.BLOCKED.value else 0
         elif action == Action.DOWN:
-            self.move_factor[1] += 1 if self.vision[3] != Event.BLOCKED.value else 0
+            self.y += 1 if self.vision[3] != Event.BLOCKED.value else 0
         elif action == Action.ZOOM:
-            self.zoom_factor -= 1 if self.vision[4] != Event.BLOCKED.value else 0
+            self.z -= 1 if self.vision[4] != Event.BLOCKED.value else 0
         elif action == Action.DEZOOM:
             if self.vision[5] != Event.BLOCKED.value:
-                self.move_factor[0] = int(self.move_factor[0] / self.model_resolution)
-                self.move_factor[1] = int(self.move_factor[1] / self.model_resolution)
-                self.zoom_factor += 1
+                self.x = int(self.x / self.model_resolution)
+                self.y = int(self.y / self.model_resolution)
+                self.z += 1
         elif action == Action.MARK:
             self.mark()
             self.get_marked_map()
@@ -271,9 +252,9 @@ class DummyEnv:
         self.fit_dummy_model()
 
         new_state = self.get_current_state()
-        is_terminal = self.nb_max_actions < self.nb_actions_taken or self.get_remaining_piece(Piece.BOAT) < 15
+        is_terminal = self.nb_max_actions < self.nb_actions_taken or self.get_remaining_piece(Piece.BOAT) < 1
 
-        reward = self.get_reward(action, is_terminal)
+        reward = self.get_reward(action)
         self.nb_actions_taken += 1
 
         return new_state, reward, is_terminal
