@@ -10,7 +10,8 @@ class QLearning:
         self.a = alpha
         self.gamma = gamma
         self.episodes = episodes
-        self.Q = np.zeros((environment.get_nb_state(), environment.nb_action))
+        self.Q = np.random.randint(environment.nb_action, size=(environment.get_nb_state()
+                                   * environment.nb_action)).reshape(environment.get_nb_state(), environment.nb_action)
         self.policy = policy
         self.policy.set_agent(self)
         # for evaluation
