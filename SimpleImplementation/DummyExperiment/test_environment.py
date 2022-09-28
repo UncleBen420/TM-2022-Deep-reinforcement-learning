@@ -24,17 +24,17 @@ class TestEnv:
         de.get_vision()
         np.testing.assert_equal([2., 2., 2., 2., 2., 4., 2.], de.vision)
         de.move_factor = (1, 0)
-        de.history.append((0, 0, de.zoom_factor))
+        de.history.append((0, 0, de.z))
         de.get_vision()
         np.testing.assert_equal([0., 2., 4., 2., 2., 4., 2.], de.vision)
         de.move_factor = (0, 1)
         de.get_vision()
         np.testing.assert_equal([4., 2., 0., 2., 2., 4., 2.], de.vision)
         de.move_factor = (0, 0)
-        de.zoom_factor -= 1
+        de.z -= 1
         de.get_vision()
         np.testing.assert_equal([4., 2., 4., 2., 2., 0., 2.], de.vision)
-        de.zoom_factor = 1
+        de.z = 1
         de.get_vision()
         np.testing.assert_equal([4., 2., 4., 2., 4., 2., 2.], de.vision)
         de.move_factor = (de.size / 2 - 1, 0)
@@ -76,7 +76,7 @@ class TestEnv:
         assert de.dummy_boat_model == 0
         assert de.fit_dummy_model_surface(sub_grid) == 1
 
-        de.zoom_factor = 1
+        de.z = 1
         de.fit_dummy_model_boat(sub_grid)
         assert de.dummy_boat_model == 1
         assert de.fit_dummy_model_surface(sub_grid) == 1
@@ -88,7 +88,7 @@ class TestEnv:
         assert de.dummy_boat_model == 0
         assert de.fit_dummy_model_surface(sub_grid) == 0
 
-        de.zoom_factor = 1
+        de.z = 1
         de.fit_dummy_model_boat(sub_grid)
         assert de.dummy_boat_model == 0
         assert de.fit_dummy_model_surface(sub_grid) == 0
@@ -108,7 +108,7 @@ class TestEnv:
         de.history.append((0, 1, 2))
 
         assert de.get_reward(EnvironmentDummy.Action.DOWN, False) == -1
-        de.zoom_factor = 1
+        de.z = 1
         assert de.get_reward(EnvironmentDummy.Action.DOWN, False) == -1
         de.history.append((0, 1, 2))
         assert de.get_reward(EnvironmentDummy.Action.DOWN, False) == -11
