@@ -24,10 +24,10 @@ def plot_result(agent, name):
 
     mean_v = np.mean(expected_rewards, axis=1)
 
-    axs[0].plot(expected_rewards)
-    axs[0].set_title('Agent V function')
-    axs[0].set_xlabel('nb iteration')
-    axs[0].set_ylabel('V for every state')
+    #axs[0].plot(expected_rewards)
+    #axs[0].set_title('Agent V function')
+    #axs[0].set_xlabel('nb iteration')
+    #axs[0].set_ylabel('V for every state')
 
     axs[2].plot(mean_v, label=name)
     axs[2].set_title('Mean V of the agent')
@@ -59,11 +59,11 @@ if __name__ == '__main__':
     #de.get_gif_trajectory("dummy_agent.gif")
     #plt.show()
 
-    ql = QLearning(de, E_Greedy(0.06), episodes=100)
-    plot_result(ql, "Q-Learning")
-    plt.imshow(de.render_board_img(de.marked_map, [1, 0, 0]))
+    #ql = QLearning(de, E_Greedy(0.06), episodes=20)
+    #plot_result(ql, "Q-Learning")
+    #plt.imshow(de.render_board_img(de.marked_map, [1, 0, 0]))
     #de.get_gif_trajectory("dummy_agent.gif")
-    plt.show()
+    #plt.show()
 
     #mc = MonteCarloOnPolicy(de, E_Greedy(0.1), episodes=100)
     #plot_result(mc, "MC")
@@ -71,8 +71,8 @@ if __name__ == '__main__':
     #de.get_gif_trajectory("dummy_agent_mc.gif")
     #plt.show()
 
-    #ns = NStepSarsa(de, E_Greedy(0.2), episodes=10, steps=4)
-    #plot_result(ns, "ns")
-    #plt.imshow(de.render_board_img(de.marked_map, [1, 0, 0]))
-    # de.get_gif_trajectory("dummy_agent_mc.gif")
-    #plt.show()
+    ns = NStepSarsa(de, E_Greedy(0.1), episodes=20, steps=3)
+    plot_result(ns, "ns")
+    plt.imshow(de.render_board_img(de.marked_map, [1, 0, 0]))
+    #de.get_gif_trajectory("dummy_agent_mc.gif")
+    plt.show()

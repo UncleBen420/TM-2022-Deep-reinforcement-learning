@@ -23,10 +23,11 @@ class Event(Enum):
     this enum class simplify the representation of the different
     pieces on the board.
     """
-    UNKNOWN = 0
-    VISITED = 1
-    MARKED = 2
-    BLOCKED = 3
+    VISITED = 0
+    MARKED = 1
+    WATER_DETECTED = 2
+    GROUND_DETECTED = 3
+    BLOCKED = 4
 
 
 class Action(Enum):
@@ -59,12 +60,10 @@ class DummyEnv:
         self.zoom_factor = max_zoom - 1
         # (x, y)
         self.move_factor = [0, 0]
-        self.sub_grid = None
         # State of the environment
-        self.dummy_boat_model = None
-        self.dummy_surface_model = None
+        self.dummy_boat_model = 0
         self.vision = np.zeros(7, dtype=int)
-        self.states = np.arange(2 * 2 * (4 ** 6) * 3).reshape((2, 2, 4, 4, 4, 4, 4, 4, 3))
+        self.states = np.arange(2 * (5 ** 6) * 4).reshape((2, 5, 5, 5, 5, 5, 5, 4))
 
         def model_probalities(i):
             if i is Piece.BOAT:
@@ -93,27 +92,6 @@ class DummyEnv:
         self.nb_actions_taken = 0
         self.move_factor = [0, 0]
         self.zoom_factor = self.max_zoom - 1
-        self.compute_sub_grid()
-        self.fit_dummy_model()
-        self.get_vision()
-
-        return self.get_current_state()
-
-    def reload_env_random_state(self):
-        del self.history
-        del self.marked
-        del self.marked_map
-
-        self.history = []
-        self.marked = []
-        self.marked_map = np.zeros((self.size, self.size), dtype=bool)
-        self.nb_actions_taken = 0
-        self.zoom_factor = random.randint(1, self.max_zoom - 1)
-        self.move_factor = [random.randint(0, self.size - 1) / self.zoom_factor,
-                            random.randint(0, self.size - 1) / self.zoom_factor]
-
-        self.compute_sub_grid()
-        self.fit_dummy_model()
         self.get_vision()
 
         return self.get_current_state()
@@ -165,48 +143,72 @@ class DummyEnv:
         place_all_car = np.vectorize(place_car)
         self.grid = place_all_car(self.grid)
 
-    def compute_sub_grid(self):
-
+    def compute_sub_grid(self, move_factor, zoom_factor):
         #pad = self.model_resolution ** (self.zoom_factor - 1)
-        window = self.model_resolution ** self.zoom_factor
-        self.sub_grid = self.grid[window * self.move_factor[0]:window + window * self.move_factor[0]
-        , window * self.move_factor[1]:window + window * self.move_factor[1]]
+        window = self.model_resolution ** zoom_factor
+        return self.grid[window * move_factor[0]:window + window * move_factor[0]
+                        ,window * move_factor[1]:window + window * move_factor[1]]
 
     def get_vision(self):
-        move_set = [(self.move_factor[0] - 1, self.move_factor[1], self.zoom_factor),
-                    (self.move_factor[0] + 1, self.move_factor[1], self.zoom_factor),
-                    (self.move_factor[0], self.move_factor[1] - 1, self.zoom_factor),
-                    (self.move_factor[0], self.move_factor[1] + 1, self.zoom_factor),
-                    (self.move_factor[0], self.move_factor[1], self.zoom_factor - 1),
-                    (self.move_factor[0], self.move_factor[1], self.zoom_factor + 1),
-                    (self.move_factor[0], self.move_factor[1], self.zoom_factor)]
-        # check if a place had already been visited or marked
+        def left(x, y, z):
+            return x < 0
+
+        def up(x, y, z):
+            return y < 0
+
+        def right(x, y, z):
+            return x >= self.size / (self.model_resolution ** self.zoom_factor)
+
+        def down(x, y, z):
+            return y >= self.size / (self.model_resolution ** self.zoom_factor)
+
+        def zoom(x, y, z):
+            return z <= 0
+
+        def unzoom(x, y, z):
+            return z >= self.max_zoom
+
+        def current(x, y, z):
+            return False
+
+        move_set = [((self.move_factor[0] - 1, self.move_factor[1], self.zoom_factor), left),
+                    ((self.move_factor[0] + 1, self.move_factor[1], self.zoom_factor), right),
+                    ((self.move_factor[0], self.move_factor[1] - 1, self.zoom_factor), up),
+                    ((self.move_factor[0], self.move_factor[1] + 1, self.zoom_factor), down),
+                    ((self.move_factor[0], self.move_factor[1], self.zoom_factor - 1), zoom),
+                    ((int(self.move_factor[0] / self.model_resolution),
+                      int(self.move_factor[1] / self.model_resolution), self.zoom_factor + 1), unzoom),
+                    ((self.move_factor[0], self.move_factor[1], self.zoom_factor), current)]
+
         for i in range(7):
-            self.vision[i] = (Event.VISITED.value if move_set[i] in self.history
-                              else Event.UNKNOWN.value)
-            self.vision[i] = (Event.MARKED.value if move_set[i] in self.marked
-                              else self.vision[i])
 
-        self.vision[0] = Event.BLOCKED.value if self.move_factor[0] <= 0 else self.vision[0]
-        self.vision[1] = Event.BLOCKED.value if (self.move_factor[0] + 1) >= self.size / (
-                self.model_resolution ** self.zoom_factor) else self.vision[1]
+            value, condition = move_set[i]
+            x, y, z = value
 
-        self.vision[2] = Event.BLOCKED.value if self.move_factor[1] <= 0 else self.vision[2]
-        self.vision[3] = Event.BLOCKED.value if (self.move_factor[1] + 1) >= self.size / (
-                self.model_resolution ** self.zoom_factor) else self.vision[3]
+            if condition(x, y, z):
+                self.vision[i] = Event.BLOCKED.value
+            elif (x, y, z) in self.marked:
+                self.vision[i] = Event.MARKED.value
+            elif (x, y, z) in self.history:
+                self.vision[i] = Event.VISITED.value
+            elif self.fit_dummy_model_surface(self.compute_sub_grid((x, y), z)):
+                self.vision[i] = Event.WATER_DETECTED.value
+            else:
+                self.vision[i] = Event.GROUND_DETECTED.value
 
-        self.vision[4] = Event.BLOCKED.value if self.zoom_factor - 1 <= 0 else self.vision[4]
-        self.vision[5] = Event.BLOCKED.value if self.zoom_factor + 1 >= self.max_zoom else self.vision[5]
+        self.fit_dummy_model_boat(self.compute_sub_grid(self.move_factor, self.zoom_factor))
 
-    def fit_dummy_model(self):
-        proba = self.get_probabilities(self.sub_grid)
+    def fit_dummy_model_boat(self, grid):
+        proba = self.get_probabilities(grid)
         self.dummy_boat_model = 1 if np.count_nonzero(proba == Piece.BOAT) else 0
-        self.dummy_surface_model = 1 if np.count_nonzero(proba == Piece.WATER) > np.count_nonzero(
-            proba == Piece.GROUND) else 0
+
+    def fit_dummy_model_surface(self, grid):
+        proba = self.get_probabilities(grid)
+        return np.count_nonzero(proba == Piece.WATER) > np.count_nonzero(proba == Piece.GROUND)
 
     def get_current_state(self):
         return \
-            self.states[self.dummy_boat_model][self.dummy_surface_model][self.vision[0]][self.vision[1]][
+            self.states[self.dummy_boat_model][self.vision[0]][self.vision[1]][
                 self.vision[2]][
                 self.vision[3]][self.vision[4]][self.vision[5]][self.vision[6]]
 
@@ -227,12 +229,18 @@ class DummyEnv:
         return total_piece - marked_piece
 
     def get_reward(self, action, is_terminal):
+
+        sub_grid = self.compute_sub_grid(self.move_factor, self.zoom_factor)
+
         reward = -1
         if action == Action.MARK and not self.marked[-1] in self.marked[:-1]:
-            reward += np.count_nonzero(self.sub_grid == Piece.BOAT) * 10
-            reward -= np.count_nonzero(self.sub_grid == Piece.HOUSE) * 10
+            reward += np.count_nonzero(sub_grid == Piece.BOAT) * 10
+            reward -= np.count_nonzero(sub_grid == Piece.HOUSE) * 10
         elif action == Action.MARK:
-            reward -100
+            reward -= 100
+
+        if self.history[-1] in self.history[:-1]:
+            reward -= 10
 
         if is_terminal:
             print(self.nb_actions_taken)
@@ -263,9 +271,7 @@ class DummyEnv:
             self.mark()
             self.get_marked_map()
 
-        self.compute_sub_grid()
         self.get_vision()
-        self.fit_dummy_model()
 
         new_state = self.get_current_state()
         is_terminal = self.nb_max_actions < self.nb_actions_taken or self.get_remaining_piece(Piece.BOAT) < 15

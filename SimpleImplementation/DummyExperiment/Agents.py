@@ -73,8 +73,27 @@ class NStepSarsa:
         self.Q = np.zeros((environment.get_nb_state(), environment.nb_action))
         self.policy = policy
         self.policy.set_agent(self)
+        self.trajectory = []
+        self.is_terminal = False
         # for evaluation
         self.V = np.zeros(environment.get_nb_state())
+
+    def updade_q(self):
+        Sr, Ar, _ = self.trajectory.pop(0)
+
+        G = 0.
+        for t, step in enumerate(self.trajectory):
+            St, At, Rt = step
+            G += (self.gamma ** (t - 1)) * Rt
+
+        Gv = G
+
+        if not self.is_terminal:
+            Gv += (self.gamma ** self.n) * self.V[self.trajectory[-1][0]]
+            G  += (self.gamma ** self.n) * self.Q[self.trajectory[-1][0]][self.trajectory[-1][1]]
+
+        self.Q[Sr][Ar] += self.a * (G - self.Q[Sr][Ar])
+        self.V[Sr] += self.a * (Gv - self.V[Sr])
 
     def fit(self, verbose=False):
         """
@@ -88,41 +107,29 @@ class NStepSarsa:
 
         for _ in range(self.episodes):
 
-            queue = []
             if verbose:
                 reward = 0
 
             S = self.environment.reload_env()
-            queue.append((S, self.policy.chose_action(S), 0))
+            self.trajectory.append((S, self.policy.chose_action(S), 0))
             while True:
 
-                S, A, _ = queue[-1]
+                S, A, _ = self.trajectory[-1]
 
                 S_prime, R_prime, is_terminal = self.environment.take_action(A)
                 A_prime = self.policy.chose_action(S_prime)
-                queue.append((S_prime, A_prime, R_prime))
+                self.trajectory.append((S_prime, A_prime, R_prime))
+                self.is_terminal = is_terminal
 
                 if verbose:
                     reward += R_prime
 
-                if len(queue) > self.n:
-                    Sr, Ar, _ = queue.pop(0)
+                if len(self.trajectory) > self.n:
+                    self.updade_q()
 
-                    G = 0.
-                    for t, step in enumerate(queue):
-                        St, At, Rt = step
-                        G += (self.gamma ** (t - 1)) * Rt
-
-                    Gv = G
-
-                    if not is_terminal:
-                        Gv += self.gamma ** self.n * self.V[queue[-1][0]]
-                        G += self.gamma ** self.n * self.Q[queue[-1][0]][queue[-1][1]]
-
-                    self.Q[Sr][Ar] += self.a * (G - self.Q[Sr][Ar])
-                    self.V[Sr] += self.a * (Gv - self.V[Sr])
-
-                if is_terminal:
+                if self.is_terminal:
+                    while len(self.trajectory) > 1:
+                        self.updade_q()
                     break
 
             if verbose:
