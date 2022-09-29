@@ -149,8 +149,6 @@ class DummyEnv:
         self.grid = place_all_car(self.grid)
 
     def compute_sub_grid(self):
-
-        #pad = self.model_resolution ** (self.zoom_factor - 1)
         window = self.model_resolution ** self.z
         self.sub_grid = self.grid[window * self.x:window + window * self.x, window * self.y:window + window * self.y]
 

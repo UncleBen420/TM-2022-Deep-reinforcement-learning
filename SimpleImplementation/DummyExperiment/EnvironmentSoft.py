@@ -14,12 +14,17 @@ class SoftEnv:
         self.move_step = 0
         self.model_resolution = model_resolution
         self.zoom_factor = zoom_factor
-        self.cv = cv2.cuda if self.check_cuda else cv2
+        print(self.check_cuda())
+        self.cv = cv2.cuda if self.check_cuda() else cv2
 
     def init_env(self, image):
         self.current_full_img = cv2.imread(image)
-        self.current_img = self.cv.reshape(image, (self.model_resolution,
-                                                   self.model_resolution))
+
+    def compute_sub_img(self):
+        window = self.model_resolution ** self.z
+        self.sub_img = self.grid[window * self.x:window + window * self.x, window * self.y:window + window * self.y]
+        self.sub_img = self.cv.resize(self.sub_img, (self.model_resolution, self.model_resolution))
+
 
     def get_sub_image(self):
         pass

@@ -28,7 +28,7 @@ class Evaluator:
 
         results = []
 
-        fig, axs = plt.subplots(nrows=3, ncols=1, layout="constrained")
+        fig, axs = plt.subplots(nrows=4, ncols=1, layout="constrained")
         fig.suptitle("hyper parameters selections for {0}".format(name))
 
         for i, hyper_parameter in enumerate(self.hyper_parameters):
@@ -61,10 +61,15 @@ class Evaluator:
             axs[1].set_xlabel('nb iteration')
             axs[1].set_ylabel('rewards')
 
-            axs[2].plot(np.mean(boats_left, axis=0), label=label)
-            axs[2].set_title('Percent of number of boat left')
+            axs[2].plot(np.var(sum_of_rewards, axis=0), label=label)
+            axs[2].set_title('Variance of the sum of rewards')
             axs[2].set_xlabel('nb iteration')
-            axs[2].set_ylabel('percent nb boats')
+            axs[2].set_ylabel('variance')
+
+            axs[3].plot(np.mean(boats_left, axis=0), label=label)
+            axs[3].set_title('Percent of number of boat left')
+            axs[3].set_xlabel('nb iteration')
+            axs[3].set_ylabel('percent nb boats')
 
             fig.legend(bbox_to_anchor=(1.3, 0.6))
 
