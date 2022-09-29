@@ -79,7 +79,7 @@ if __name__ == '__main__':
     print(de.render_grid(de.grid))
 
     dm = DummyAgent(de)
-    evaluator = Evaluator(de, 2, 10, [0.1, 0.2], [0.5, 0.6], [0.01, 0.05])
+    evaluator = Evaluator(de, 3, 1000, [0.1, 0.2], [0.5, 0.6], [0.01, 0.05])
     evaluator.evaluate(QLearning, E_Greedy, "Q-Learning")
     evaluator.evaluate(MonteCarloOnPolicy, E_Greedy, "Monte Carlo")
     evaluator.evaluate(NStepSarsa, E_Greedy, "N-Step Sarsa")
