@@ -207,7 +207,7 @@ class DummyEnv:
     def get_remaining_piece(self, piece):
         total_piece = np.count_nonzero(self.grid == piece)
         marked_piece = np.count_nonzero(self.grid[self.marked_map] == piece)
-        return total_piece - marked_piece
+        return (total_piece - marked_piece) / total_piece * 100
 
     def get_reward(self, action):
         reward = -1
@@ -250,14 +250,10 @@ class DummyEnv:
         self.compute_sub_grid()
         self.get_vision()
         self.fit_dummy_model()
-
-        new_state = self.get_current_state()
-        is_terminal = self.nb_max_actions < self.nb_actions_taken or self.get_remaining_piece(Piece.BOAT) < 1
-
-        reward = self.get_reward(action)
         self.nb_actions_taken += 1
+        is_terminal = self.nb_max_actions <= self.nb_actions_taken or self.get_remaining_piece(Piece.BOAT) <= 5.
 
-        return new_state, reward, is_terminal
+        return self.get_current_state(), self.get_reward(action), is_terminal
 
     def render_grid(self, grid):
         """

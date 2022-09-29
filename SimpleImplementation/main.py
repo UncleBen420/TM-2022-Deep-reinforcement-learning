@@ -13,67 +13,73 @@ from DummyExperiment import EnvironmentDummyHard
 from DummyExperiment.Agents import DummyAgent, QLearning, E_Greedy, MonteCarloOnPolicy, NStepSarsa, ExploitAgent, UCB
 
 
-def plot_result(agent, name):
-    """
-    Fit the agent over the environment and plot the result
-    :param environment: the environment in which the agent can evolve
-    :param agent: agent object with function fit.
-    :param name: the name of the algorithme that will be implemented
-    :return: the name and the mean v over n episode.
-    """
+class Evaluator:
 
-    mean_v, sum_of_reward = agent.fit()
+    def __init__(self, environment, nb_folds, episodes, alphas, gammas, epsilons):
+        self.environment = environment
+        self.episodes = episodes
+        self.nb_folds = nb_folds
+        self.epsilons = epsilons
+        self.hyper_parameters = np.array(np.meshgrid(gammas, alphas, epsilons)).T.reshape(-1, 3)
 
-    fig, axs = plt.subplots(nrows=2, ncols=1)
-    fig.suptitle(name)
-    fig.tight_layout(h_pad=3, w_pad=3)
+    def evaluate(self, agent, policy, name):
 
-    axs[0].plot(mean_v, label=name)
-    axs[0].set_title('Mean V of the agent')
-    axs[0].set_xlabel('nb iteration')
-    axs[0].set_ylabel('mean of V')
-    axs[0].legend()
+        print("starting evaluation of {0}".format(name))
 
-    axs[1].plot(sum_of_reward)
-    axs[1].set_title('Agent accumulated rewards')
-    axs[1].set_xlabel('nb iteration')
-    axs[1].set_ylabel('sum of reward')
+        results = []
 
-    plt.show()
+        fig, axs = plt.subplots(nrows=3, ncols=1, layout="constrained")
+        fig.suptitle("hyper parameters selections for {0}".format(name))
 
-    print("Mean of V:{0} for {1} iterations.".format(mean_v[-1], len(mean_v)))
-    return {'mean': mean_v, 'reward': sum_of_reward, 'name': name}
+        for i, hyper_parameter in enumerate(self.hyper_parameters):
+            v_means = []
+            sum_of_rewards = []
+            boats_left = []
+
+            gamma, alpha, epsilon = hyper_parameter
+            label = "g: " + str(gamma) + ",a: " + str(alpha) + ",e: " + str(epsilon)
+
+            for fold in range(self.nb_folds):
+                print("{0}/{1}: training with gamma at {2}, alpha at {3} and epsilon at {4}"
+                      .format(fold+1, self.nb_folds, gamma, alpha, epsilon))
+                self.environment.init_env()
+                agt = agent(de, policy(epsilon), episodes=self.episodes)
+                metrics = agt.fit()
+
+                v_means.append(metrics[0])
+                sum_of_rewards.append(metrics[1])
+                boats_left.append(metrics[2])
+
+            axs[0].plot(np.mean(v_means, axis=0), label=label)
+            axs[0].set_title('Mean V of the agent')
+            axs[0].set_xlabel('nb iteration')
+            axs[0].set_ylabel('mean of V')
+            axs[0].legend(bbox_to_anchor=(0, 1, 1, 0), loc="lower left")
+
+            axs[1].plot(np.mean(sum_of_rewards, axis=0), label=label)
+            axs[1].set_title('Sum of rewards')
+            axs[1].set_xlabel('nb iteration')
+            axs[1].set_ylabel('rewards')
+
+            axs[2].plot(np.mean(boats_left, axis=0), label=label)
+            axs[2].set_title('Percent of number of boat left')
+            axs[2].set_xlabel('nb iteration')
+            axs[2].set_ylabel('percent nb boats')
+
+            fig.legend(bbox_to_anchor=(1.3, 0.6))
+
+        plt.show()
 
 
 if __name__ == '__main__':
 
     de = EnvironmentDummySoft.DummyEnv(nb_max_actions=1000)
-    #de = EnvironmentDummyHard.DummyEnv(nb_max_actions=30000)
 
     de.init_env()
     print(de.render_grid(de.grid))
 
     dm = DummyAgent(de)
-    #plot_result(dm, "Random")
-
-    #plt.imshow(de.render_board_img(de.marked_map, [1, 0, 0]))
-    #de.get_gif_trajectory("dummy_agent.gif")
-    #plt.show()
-
-    ql = QLearning(de, E_Greedy(0.05), episodes=1000)
-    plot_result(ql, "Q-Learning")
-    plt.imshow(de.render_board_img(de.marked_map, [1, 0, 0]))
-    de.get_gif_trajectory("dummy_agent_ql.gif")
-    plt.show()
-
-    #mc = MonteCarloOnPolicy(de, E_Greedy(0.05), episodes=1000)
-    #plot_result(mc, "MC")
-    #plt.imshow(de.render_board_img(de.marked_map, [1, 0, 0]))
-    #de.get_gif_trajectory("dummy_agent_mc.gif")
-    #plt.show()
-
-    #ns = NStepSarsa(de, E_Greedy(0.1), episodes=1000, steps=4)
-    #plot_result(ns, "ns")
-    #plt.imshow(de.render_board_img(de.marked_map, [1, 0, 0]))
-    #de.get_gif_trajectory("dummy_agent_ns.gif")
-    #plt.show()
+    evaluator = Evaluator(de, 2, 10, [0.1, 0.2], [0.5, 0.6], [0.01, 0.05])
+    evaluator.evaluate(QLearning, E_Greedy, "Q-Learning")
+    evaluator.evaluate(MonteCarloOnPolicy, E_Greedy, "Monte Carlo")
+    evaluator.evaluate(NStepSarsa, E_Greedy, "N-Step Sarsa")
