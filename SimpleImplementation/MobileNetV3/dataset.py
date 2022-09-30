@@ -72,6 +72,7 @@ class dataset_dota(torch.utils.data.Dataset):
         if self.transform:
             img = self.transform(img)
 
+
         dataset_classes = {'ship':0,
                            'not-ship':1}
 
