@@ -1,7 +1,9 @@
-import math
+"""
+This file implement a dummy environment to train the agents on and compare them. The term "Soft" mean that the
+states of the environment are not linked to it's size (contrary to a grid world for exemple).
+"""
 import random
 from enum import Enum
-
 import cv2
 import imageio
 import numpy as np
@@ -20,8 +22,7 @@ class Piece(Enum):
 
 class Event(Enum):
     """
-    this enum class simplify the representation of the different
-    pieces on the board.
+    this enum class simplify the different state of the grid
     """
     UNKNOWN = 0
     VISITED = 1
@@ -30,6 +31,9 @@ class Event(Enum):
 
 
 class Action(Enum):
+    """
+    this enum class represent all the action that the agent is allowed to do.
+    """
     LEFT = 0
     UP = 1
     RIGHT = 2
@@ -41,7 +45,8 @@ class Action(Enum):
 
 class DummyEnv:
     """
-    this class implement the grid world problem as a frozen lake problem.
+    this class implement a problem where the agent must mark the place where he have found boat.
+    He must not mark place where there is house.
     """
 
     def __init__(self, size=64, model_resolution=2, max_zoom=4, nb_max_actions=100):
@@ -68,22 +73,30 @@ class DummyEnv:
         self.states = np.arange(2 * 2 * (4 ** 6) * 3).reshape((2, 2, 4, 4, 4, 4, 4, 4, 3))
 
         def model_probalities(i):
+            """
+            This function is vectorize over all the pieces on the subgrid. It gives the probability of having
+            a boat or a house.
+            :param i: the Piece that is analysed.
+            :return: the changed value of i
+            """
             if i is Piece.BOAT:
                 # simulate a neural network, the more the agent zoom the more the probability of
                 # seeing the boat increase
                 if not np.random.binomial(1, 9. * (10 ** (-1 * self.z))):
                     i = Piece.WATER
             elif i is Piece.HOUSE:
-                # simulate a case where the model mistake a house for a boat
                 if not np.random.binomial(1, 9. * (10 ** (-1 * self.z))):
                     i = Piece.GROUND
-                #elif np.random.binomial(1, 0.05):
-                #    i = Piece.BOAT
             return i
 
         self.get_probabilities = np.vectorize(model_probalities)
 
     def reload_env(self):
+        """
+        allow th agent to keep the environment configuration and boat placement but reload all the history and
+        value to the starting point.
+        :return: the current state of the environment.
+        """
         del self.history
         del self.marked
         del self.marked_map

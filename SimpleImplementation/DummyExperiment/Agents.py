@@ -1,47 +1,17 @@
+"""
+This file implement 3 learning agent algorithme: Q-learning, N-step Sarsa and Monte Carlo on policy.
+"""
 import random
 from abc import ABC, abstractmethod
-
 import numpy as np
 from tqdm import tqdm
 
 from DummyExperiment.EnvironmentDummySoft import Piece
 
-
-class ExploitAgent:
-    def __init__(self, environment, Q, alpha=0.1, gamma=0.1 ):
-        self.environment = environment
-        self.policy = Greedy()
-        self.policy.set_agent(self)
-        self.Q = Q
-        self.V = np.zeros(environment.get_nb_state())
-        self.a = alpha
-        self.gamma = gamma
-
-    def predict(self):
-
-        S = self.environment.reload_env()
-        reward = 0
-
-        while True:
-            # for visualisation
-
-            A = self.policy.chose_action(S)
-            S_prime, R, is_terminal = self.environment.take_action(A)
-
-            # evaluation of V
-            self.V[S] += self.a * (R + self.gamma * self.V[S_prime] - self.V[S])
-            S = S_prime
-
-            reward += R
-
-            if is_terminal:
-                break
-
-        return self.V.copy()
-        return reward
-
-
 class QLearning:
+    """
+    Implementation of the off-policy algorithme QLearning
+    """
 
     def __init__(self, environment, policy, alpha=0.1, gamma=0.1, episodes=100):
         self.environment = environment
@@ -57,7 +27,10 @@ class QLearning:
         self.policy_history = []
 
     def fit(self):
-
+        """
+        fit is called to train the agent on the environment
+        :return: return the history of V and accumulated reward and the percent of boats left over the episodes
+        """
         mean_v = []
         rewards = []
         boats_left = []
@@ -102,8 +75,8 @@ class QLearning:
 
 class NStepSarsa:
     """
-    Implementation of the off policy n-step Sarsa
-    Contrary to the RL book it use a queue to store the trajectory
+    Implementation of the on policy n-step Sarsa
+    Contrary to the RL book it use a queue to store the trajectory. It's more efficient that an array
     """
 
     def __init__(self, environment, policy, alpha=0.1, gamma=0.1,
@@ -122,6 +95,9 @@ class NStepSarsa:
         self.V = np.zeros(environment.get_nb_state())
 
     def updade_q(self):
+        """
+        This method is used to update he Q lookup table
+        """
         Sr, Ar, _ = self.trajectory.pop(0)
 
         G = 0.
@@ -141,8 +117,7 @@ class NStepSarsa:
     def fit(self):
         """
         fit is called to train the agent on the environment
-        :param verbose: True to have a history of the V function and the accumulated reward
-        :return: return the history of V and accumulated reward if verbose == True
+        :return: return the history of V and accumulated reward and the percent of boats left over the episodes
         """
         mean_v = []
         rewards = []
@@ -211,11 +186,8 @@ class MonteCarloOnPolicy:
 
     def fit(self):
         """
-        This method fit the agent over n episode on the environment. It has a patience parameter
-        to ensure the algorithme is not stuck in infinite loop.
-        :param verbose: if true the function return the evolution
-        of the V function over the iteration.
-        :return: if true return the v function of multiple iteration, if false return nothing
+        fit is called to train the agent on the environment
+        :return: return the history of V and accumulated reward and the percent of boats left over the episodes
         """
         mean_v = []
         rewards = []
