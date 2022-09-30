@@ -72,7 +72,10 @@ class dataset_dota(torch.utils.data.Dataset):
         if self.transform:
             img = self.transform(img)
 
-        label = torch.as_tensor(int(label))
+        dataset_classes = {'ship':0,
+                           'not-ship':1}
+
+        label = torch.as_tensor(dataset_classes[label])
 
         return img, label
 

@@ -98,7 +98,7 @@ if __name__ == '__main__':
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = True
 
-    dataset_classes = ['small-vehicle', 'large-vehicle', 'roundabout', 'ship', 'swimming-pool', 'bridge', 'soccer-ball-field', 'harbor', 'tennis-court', 'baseball-diamond', 'basketball-court', 'storage-tank', 'plane', 'helicopter', 'ground-track-field', 'container-crane', 'helipad']
+    dataset_classes = ['ship', 'not-ship']
 
     # Construct the argument parser.
     parser = argparse.ArgumentParser()
