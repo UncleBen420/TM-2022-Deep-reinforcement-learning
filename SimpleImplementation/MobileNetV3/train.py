@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 import torch
 import argparse
 import torch.nn as nn
@@ -43,7 +44,7 @@ def train(
 
     # Loss and accuracy for the complete epoch.
     epoch_loss = train_running_loss / counter
-    epoch_acc = 100. * (train_running_correct / len(trainloader.dataset))
+    epoch_acc = (train_running_correct / len(trainloader.dataset))
     return epoch_loss, epoch_acc
 
 
@@ -81,11 +82,11 @@ def validate(model, testloader, criterion, class_names):
 
     # Loss and accuracy for the complete epoch.
     epoch_loss = valid_running_loss / counter
-    epoch_acc = 100. * (valid_running_correct / len(testloader.dataset))
+    epoch_acc = (valid_running_correct / len(testloader.dataset))
     # Print the accuracy for each class after every epoch.
     print('\n')
     for i in range(len(class_names)):
-        print(f"Accuracy of class {class_names[i]}: {100 * class_correct[i] / class_total[i]}")
+        print(f"Accuracy of class {class_names[i]}: {class_correct[i] / class_total[i]}")
     print('\n')
     return epoch_loss, epoch_acc
 
@@ -180,6 +181,11 @@ if __name__ == '__main__':
         print(f"Validation loss: {valid_epoch_loss:.3f}, validation acc: {valid_epoch_acc:.3f}")
         print('-' * 50)
         time.sleep(5)
+
+    plt.plot(train_loss, label="train loss")
+    plt.plot(valid_loss, label="test loss")
+    plt.plot(train_acc, label="train acc")
+    plt.plot(valid_acc, label="test acc")
 
     # Save the trained model weights.
     save_model(epochs, model, optimizer, criterion)
