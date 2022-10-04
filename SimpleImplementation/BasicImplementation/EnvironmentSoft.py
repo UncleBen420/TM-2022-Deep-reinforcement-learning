@@ -95,6 +95,7 @@ class SoftEnv:
         self.z = 1
         self.transform = NormalisationMobileNet()
         self.device = ('cuda' if torch.cuda.is_available() else 'cpu')
+        print('[INFO]: Models are using {0}'.format(self.device))
         self.min_resolution = 32
         self.model_resolution = model_resolution
         self.cv = cv2.cuda if check_cuda() else cv2
