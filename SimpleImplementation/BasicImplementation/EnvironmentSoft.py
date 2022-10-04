@@ -96,7 +96,7 @@ class SoftEnv:
         self.transform = NormalisationMobileNet()
         self.device = ('cuda' if torch.cuda.is_available() else 'cpu')
         print('[INFO]: Models are using {0}'.format(self.device))
-        self.min_resolution = 32
+        self.min_zoom = 5
         self.model_resolution = model_resolution
         self.cv = cv2.cuda if check_cuda() else cv2
         self.states = np.arange(2 * 2 * (4 ** 6) * 3).reshape((2, 2, 4, 4, 4, 4, 4, 4, 3))
@@ -149,7 +149,9 @@ class SoftEnv:
         """
         self.full_img = cv2.cvtColor(cv2.imread(image), cv2.COLOR_BGR2RGB)
         self.H, self.W, self.channels = self.full_img.shape
-        self.max_zoom = int(math.log(np.min([self.W, self.H]), self.min_resolution))
+        self.max_zoom = int(math.log(np.min([self.W, self.H]), 2))
+
+        print(self.max_zoom)
         self.bb_map = np.zeros((self.H, self.W), dtype=np.uint8)
         print(self.max_zoom)
         with open(labels, "r") as file:
@@ -172,7 +174,7 @@ class SoftEnv:
         """
         Get the current sub images given by the x, y and z axis.
         """
-        window = self.min_resolution ** self.z
+        window = 2 ** self.z
         self.sub_img = self.full_img[window * self.y:window + window * self.y, window * self.x:window + window * self.x]
         self.sub_img = self.cv.resize(self.sub_img, (self.model_resolution, self.model_resolution))
 
@@ -229,7 +231,7 @@ class SoftEnv:
         :param position: the current x, y, z axis
         """
         x, y, z = position
-        window = self.min_resolution ** z
+        window = 2 ** z
         sub_mark = self.marked_map[window * y:window + window * y, window * x:window + window * x]
         return True if np.count_nonzero(sub_mark) else False
 
@@ -237,7 +239,7 @@ class SoftEnv:
         """
         this method allow the agent to mark a position
         """
-        window = self.model_resolution ** self.z
+        window = 2 ** self.z
         self.marked.append((self.x, self.y, self.z))
         self.marked_map[window * self.x:window + window * self.x, window * self.y:window + window * self.y] = True
 
@@ -276,7 +278,7 @@ class SoftEnv:
         self.vision[3] = Event.BLOCKED.value if (self.y + 1) >= self.H / (
                 self.model_resolution ** self.z) else self.vision[3]
 
-        self.vision[4] = Event.BLOCKED.value if self.z - 1 <= 0 else self.vision[4]
+        self.vision[4] = Event.BLOCKED.value if self.z - 1 < self.min_zoom else self.vision[4]
         self.vision[5] = Event.BLOCKED.value if self.z + 1 >= self.max_zoom else self.vision[5]
 
     def get_nb_state(self):

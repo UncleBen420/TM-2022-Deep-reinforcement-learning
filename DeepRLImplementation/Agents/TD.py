@@ -11,27 +11,25 @@ class QLearning:
     Implementation of the off-policy algorithme QLearning
     """
 
-    def __init__(self, environment, Q,policy, alpha=0.1, gamma=0.1, episodes=100):
+    def __init__(self, environment, Q,policy, alpha=0.1, gamma=0.1, episodes=100, dataset_size=64):
         self.environment = environment
         self.a = alpha
         self.gamma = gamma
         self.episodes = episodes
+        self.dataset_size = dataset_size
         self.Q = Q
         self.policy = policy
         self.policy.set_agent(self)
-        # for evaluation
-        self.V = np.zeros(environment.get_nb_state())
-        # for visualisation
-        self.policy_history = []
 
     def fit(self):
         """
         fit is called to train the agent on the environment
         :return: return the history of V and accumulated reward and the percent of boats left over the episodes
         """
-        mean_v = []
+        loss = []
         rewards = []
         boats_left = []
+        dataset = []
 
         with tqdm(range(self.episodes), unit="episode") as episode:
             for _ in episode:
@@ -47,9 +45,16 @@ class QLearning:
 
                     S_prime, R, is_terminal = self.environment.take_action(A)
                     Q_pred_prime = self.Q.predict(S_prime)
-                    Q_pred += self.a * (R + self.gamma * np.max(self.Q[S_prime]) - Q_pred_prime)
-                    # evaluation of V
-                    self.V[S] += self.a * (R + self.gamma * self.V[S_prime] - self.V[S])
+                    Q_pred += self.a * (R + self.gamma * Q_pred_prime - Q_pred)
+
+                    img, vision = S
+                    dataset.append((img, vision, Q_pred))
+
+                    # Learning step:
+                    if len(dataset) >= self.dataset_size:
+                        loss.append(self.Q.update(dataset))
+                        dataset.clear()
+
                     S = S_prime
 
                     reward += R
@@ -60,13 +65,12 @@ class QLearning:
                 mv = np.mean(self.V)
                 bl = self.environment.get_marked_percent()
                 st = self.environment.nb_actions_taken
-                mean_v.append(mv)
                 rewards.append(reward)
                 boats_left.append(bl)
 
                 episode.set_postfix(mean_v=mv, rewards=reward, boats_left=bl, steps_taken=st)
 
-            return mean_v, rewards, boats_left
+            return loss, rewards, boats_left
 
     def get_policy(self):
         return np.argmax(self.Q, axis=1)

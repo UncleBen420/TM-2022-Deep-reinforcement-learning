@@ -5,7 +5,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 
 
-class ImageDataset(Dataset):
+class MobileRLNetDataset(Dataset):
     """Tabular and Image dataset."""
 
     def __init__(self, trajectory):

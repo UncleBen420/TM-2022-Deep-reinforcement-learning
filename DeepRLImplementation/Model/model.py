@@ -5,9 +5,15 @@ import numpy as np
 import torch
 from torch import nn
 import torchvision.models as models
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
+from Model.dataset import MobileRLNetDataset
 
 VISION_SIZE = 5
 MOBILENET_RES = 224
+BATCH_SIZE = 16
+NUM_WORKERS = 4
 
 
 class MobileRLNET(nn.Module):
@@ -54,41 +60,45 @@ class MobileRLNET(nn.Module):
 
         self.optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
 
-    def predict(self, vision, img):
+    def predict(self, img, vision):
         with torch.no_grad():
             mb_output = self.mb_net(img)
             x = torch.cat((mb_output, vision), dim=1)
             return self.Q(x)
 
+    def prepare_batch(self, batch):
+        dataset = MobileRLNetDataset(batch)
+        return DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKERS)
+
     def update(self, batch):
+        dataloader = self.prepare_batch()
+
         train_running_loss = 0.0
         train_running_correct = 0
         counter = 0
-        iters = len(trainloader)
-        for i, data in tqdm(enumerate(trainloader), total=len(trainloader)):
-            torch.cuda.empty_cache()
+        iters = len(dataloader)
+        for i, data in tqdm(enumerate(dataloader), total=len(dataloader)):
             counter += 1
-            image, labels = data
-            image = image.to(device)
-            labels = labels.to(device)
-            optimizer.zero_grad()
+            image, vision, y = data
+            image = image.to(self.device)
+            vision = vision.to(self.device)
+            y = y.to(self.device)
+
+            # Reset the gradient
+            self.optimizer.zero_grad()
+
             # Forward pass.
-            outputs = model(image)
+            outputs = self.predict(image, vision)
+
             # Calculate the loss.
-            loss = criterion(outputs, labels)
+            loss = self.loss_fn(outputs, y)
             train_running_loss += loss.item()
-            # Calculate the accuracy.
-            _, preds = torch.max(outputs.data, 1)
-            train_running_correct += (preds == labels).sum().item()
+
             # Backpropagation.
             loss.backward()
-            # Update the weights.
-            optimizer.step()
-            if scheduler is not None:
-                scheduler.step(epoch + i / iters)
 
-        # Loss and accuracy for the complete epoch.
-        epoch_loss = train_running_loss / counter
-        epoch_acc = (train_running_correct / len(trainloader.dataset))
-        return epoch_loss, epoch_acc
-        pred = self.model(state1_batch)
+            # Update the weights.
+            self.optimizer.step()
+
+        # Loss for the complete epoch.
+        return train_running_loss / counter
