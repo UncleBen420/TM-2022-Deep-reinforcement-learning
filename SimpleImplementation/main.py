@@ -1,3 +1,5 @@
+from matplotlib import pyplot as plt
+
 from BasicImplementation.Agents import QLearning, E_Greedy
 from BasicImplementation.EnvironmentSoft import SoftEnv
 
@@ -7,3 +9,5 @@ if __name__ == '__main__':
     se.init_env("/home/remy/Documents/P9467.png", "/home/remy/Documents/P9467.txt")
     ql = QLearning(se, E_Greedy(0.1))
     ql.fit()
+
+    plt.imshow(se.render_marked_map())

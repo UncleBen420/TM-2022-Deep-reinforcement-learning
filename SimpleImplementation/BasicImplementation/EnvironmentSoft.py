@@ -289,7 +289,7 @@ class SoftEnv:
             window = self.model_resolution ** self.z
             marked = self.bb_map[window * self.x:window + window * self.x, window * self.y:window + window * self.y]
             reward += np.count_nonzero(marked) * 10
-            reward -= (marked.size - np.count_nonzero(marked)) * 10
+            reward -= (marked.size - np.count_nonzero(marked)) 
         elif action == Action.MARK:
             reward -= 100
 
@@ -360,5 +360,11 @@ class SoftEnv:
                 color = [255, 0, 0] if self.get_surface_prediction(img) else [0, 255, 0]
                 prediction_map[window * j:window + window * j, window * i:window + window * i] = color
         return self.cv.addWeighted(prediction_map, 0.3, self.full_img, 0.7, 0)
+
+    def render_marked_map(self):
+        marked_image = np.zeros((self.H, self.W, self.channels), dtype=np.uint8)
+        marked_image[self.bb_map > 0] = [255, 0, 0]
+        marked_image[self.marked_map > 0] = [0, 255, 0]
+        return self.cv.addWeighted(self.marked_image, 0.3, self.full_img, 0.7, 0)
 
 

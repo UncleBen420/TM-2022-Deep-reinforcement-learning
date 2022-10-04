@@ -38,12 +38,6 @@ class MobileRLNET(nn.Module):
             nn.ReLU()
         )
 
-        self.vision_net = nn.Sequential(
-            nn.Linear(self.n_hidden_nodes, self.n_hidden_nodes),
-            nn.ReLU(),
-            nn.Linear(self.n_hidden_nodes, self.n_outputs)
-        )
-
         # Define policy head
         self.Q = nn.Sequential(
             nn.Linear(self.n_hidden_nodes, self.n_hidden_nodes),
