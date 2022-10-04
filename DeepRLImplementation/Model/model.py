@@ -60,36 +60,42 @@ class MobileRLNET(nn.Module):
 
         self.optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
 
-    def predict(self, img, vision):
+    def predict(self, State):
+        img, vision = State
         with torch.no_grad():
-            mb_output = self.mb_net(img)
-            x = torch.cat((mb_output, vision), dim=1)
+            mb_output = self.mb_net(img.unsqueeze(0).to(self.device))
+            x = torch.cat((mb_output, vision.to(self.device)), dim=1)
             return self.Q(x)
+
+    def predict_with_grad(self, State):
+        img, vision = State
+        print(vision.shape)
+        mb_output = self.mb_net(img.unsqueeze(0).to(self.device))
+        x = torch.cat((mb_output, vision.unsqueeze(0).to(self.device)), dim=1)
+        return self.Q(x)
 
     def prepare_batch(self, batch):
         dataset = MobileRLNetDataset(batch)
         return DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKERS)
 
     def update(self, batch):
-        dataloader = self.prepare_batch()
+        dataloader = self.prepare_batch(batch)
 
         train_running_loss = 0.0
-        train_running_correct = 0
+
         counter = 0
         iters = len(dataloader)
         with tqdm(enumerate(dataloader), unit="batch", total=len(dataloader)) as batches:
             for i, data in batches:
                 counter += 1
                 image, vision, y = data
-                image = image.to(self.device)
-                vision = vision.to(self.device)
                 y = y.to(self.device)
 
                 # Reset the gradient
                 self.optimizer.zero_grad()
 
                 # Forward pass.
-                outputs = self.predict(image, vision)
+                outputs = self.predict_with_grad(image, vision)
 
                 # Calculate the loss.
                 loss = self.loss_fn(outputs, y)

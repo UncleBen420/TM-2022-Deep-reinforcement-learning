@@ -291,15 +291,17 @@ class SoftEnv:
             window = self.pad ** self.z
             marked = self.bb_map[window * self.x:window + window * self.x, window * self.y:window + window * self.y]
             nb_boat_marked = np.count_nonzero(marked > 0)
-            reward += nb_boat_marked / marked.size * 100
+            percent = nb_boat_marked / marked.size * 100
+            if percent >= 50:
+                reward += 1000
+            elif percent >= 20:
+                reward += 100
+            else:
+                reward -= 50
+
 
         elif action == Action.MARK:
             reward -= 100
-
-        elif action == Action.ZOOM:
-            window = self.pad ** self.z
-            marked = self.bb_map[window * self.x:window + window * self.x, window * self.y:window + window * self.y]
-            reward += 5 if np.count_nonzero(marked > 0) else 0
 
         if self.history[-1] in self.history[:-1]:
             reward -= 10

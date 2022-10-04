@@ -20,6 +20,7 @@ class QLearning:
         self.Q = Q
         self.policy = policy
         self.policy.set_agent(self)
+        self.nb_action = environment.nb_action
 
     def fit(self):
         """
@@ -41,7 +42,7 @@ class QLearning:
                 while True:
                     # for visualisation
                     Q_pred = self.Q.predict(S)
-                    A = self.policy.chose_action(Q_pred)
+                    A = self.policy.chose_action(Q_pred.numpy().astype(dtype=int))
 
                     S_prime, R, is_terminal = self.environment.take_action(A)
                     Q_pred_prime = self.Q.predict(S_prime)
@@ -91,7 +92,7 @@ class Policy(ABC):
         self.agent = agent
 
     @abstractmethod
-    def chose_action(self, state, Q):
+    def chose_action(self, Q):
         """
         return the chosen action according the implemented policy
         :param state: state in which the agent is.
@@ -99,7 +100,7 @@ class Policy(ABC):
         """
 
     @abstractmethod
-    def probability(self, state, Q):
+    def probability(self, Q):
         """
         Return the probability of each action for this state according
         to the implemented policy.
@@ -117,7 +118,7 @@ class E_Greedy(Policy):
         super().__init__()
         self.e = epsilon
 
-    def chose_action(self, state, Q):
+    def chose_action(self, Q):
         """
         return the chosen action according the e-greedy policy
         :param Q:
@@ -128,7 +129,7 @@ class E_Greedy(Policy):
             return random.randrange(self.agent.nb_action)
         return np.argmax(Q)
 
-    def probability(self, state, Q):
+    def probability(self, Q):
         """
         Return the probability of each action for this state according
         to the e-greedy policy.
