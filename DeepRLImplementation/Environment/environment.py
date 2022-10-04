@@ -15,7 +15,6 @@ from PIL import Image
 from albumentations.pytorch import ToTensorV2
 import albumentations as A
 
-from MobileNetV3.model import build_model
 
 class Event(Enum):
     """
@@ -38,8 +37,6 @@ class Action(Enum):
     ZOOM = 4
     DEZOOM = 5
     MARK = 6
-
-
 
 
 def check_cuda():
@@ -68,8 +65,6 @@ class NormalisationMobileNet:
 
     def __call__(self, img):
         return self.transforms(image=np.array(img))['image']
-
-
 
 
 class SoftEnv:
@@ -103,18 +98,8 @@ class SoftEnv:
         self.pred_boat = 0
         self.pred_surf = 0
         self.nb_action = 7
-        self.vision = np.zeros(7, dtype=int)
+        self.vision = np.zeros(7, dtype=float)
         self.nb_max_actions = max_nb_actions
-
-        self.item_model = build_model(False).to(self.device)
-        checkpoint = torch.load(item_model, map_location=torch.device(self.device))
-        self.item_model.load_state_dict(checkpoint['model_state_dict'])
-        self.item_model.eval()
-
-        self.surface_model = build_model(False).to(self.device)
-        checkpoint = torch.load(surface_model, map_location=torch.device(self.device))
-        self.surface_model.load_state_dict(checkpoint['model_state_dict'])
-        self.surface_model.eval()
 
     def reload_env(self):
         """
@@ -130,7 +115,7 @@ class SoftEnv:
         self.marked = []
         self.marked_map = np.zeros((self.W, self.H), dtype=bool)
         self.nb_actions_taken = 0
-        self.z = self.min_zoom
+        self.z = random.randint(1, self.max_zoom - 1)
         self.x = random.randint(0, int(self.W / (2 ** self.z) - 1))
         self.y = random.randint(0, int(self.H / (2 ** self.z) - 1))
         self.compute_sub_img()
@@ -286,7 +271,7 @@ class SoftEnv:
         reward = -1
 
         if action == Action.MARK and not self.marked[-1] in self.marked[:-1]:
-            window = 2 ** self.z
+            window = self.model_resolution ** self.z
             marked = self.bb_map[window * self.x:window + window * self.x, window * self.y:window + window * self.y]
             reward += np.count_nonzero(marked) * 10
             reward -= marked.size - np.count_nonzero(marked)
