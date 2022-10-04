@@ -176,9 +176,9 @@ class SoftEnv:
         self.get_vision()
         img = self.transform(self.sub_img)
         vision = self.vision + np.random.rand(1 , len(self.vision)) / 100.0
-        vision = torch.from_numpy(vision).float()
+        vision = torch.FloatTensor(vision)
 
-        return img, vision
+        return img.unsqueeze(0), vision
 
     def is_already_marked(self, position):
         """

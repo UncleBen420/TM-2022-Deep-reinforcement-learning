@@ -96,7 +96,7 @@ class SoftEnv:
         self.transform = NormalisationMobileNet()
         self.device = ('cuda' if torch.cuda.is_available() else 'cpu')
         print('[INFO]: Models are using {0}'.format(self.device))
-        self.min_zoom = 6
+        self.min_zoom = 7
         self.model_resolution = model_resolution
         self.cv = cv2.cuda if check_cuda() else cv2
         self.states = np.arange(2 * 2 * (4 ** 6) * 3).reshape((2, 2, 4, 4, 4, 4, 4, 4, 3))
@@ -286,7 +286,6 @@ class SoftEnv:
     def get_reward(self, action):
         reward = -1
 
-
         if action == Action.MARK and not self.marked[-1] in self.marked[:-1]:
             window = self.pad ** self.z
             marked = self.bb_map[window * self.x:window + window * self.x, window * self.y:window + window * self.y]
@@ -298,7 +297,6 @@ class SoftEnv:
                 reward += 100
             else:
                 reward -= 50
-
 
         elif action == Action.MARK:
             reward -= 100

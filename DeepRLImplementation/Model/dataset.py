@@ -21,8 +21,6 @@ class MobileRLNetDataset(Dataset):
 
         y = g
 
-        image = transforms.functional.to_tensor(image)
-
         vision = torch.FloatTensor(vision)
 
-        return image, vision, y
+        return (image[0], vision[0]), y
