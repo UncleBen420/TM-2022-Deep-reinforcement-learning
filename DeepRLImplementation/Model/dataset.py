@@ -15,22 +15,14 @@ class ImageDataset(Dataset):
         return len(self.trajectory)
 
     def __getitem__(self, idx):
-        image, vision = self.trajectory[idx]
+        image, vision, g = self.trajectory[idx]
 #        if torch.is_tensor(idx):
 #            idx = idx.tolist()
 
-        tabular = self.tabular.iloc[idx, 0:]
-
-        y = tabular["price"]
-
-        image = Image.open(f"{self.image_dir}/{tabular['zpid']}.png")
-        image = np.array(image)
-        image = image[..., :3]
+        y = g
 
         image = transforms.functional.to_tensor(image)
 
-        tabular = tabular[["latitude", "longitude", "beds", "baths", "area"]]
-        tabular = tabular.tolist()
-        tabular = torch.FloatTensor(tabular)
+        vision = torch.FloatTensor(vision)
 
-        return image, tabular, y
+        return image, vision, y
