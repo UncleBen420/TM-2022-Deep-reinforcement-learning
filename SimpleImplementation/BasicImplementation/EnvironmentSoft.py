@@ -96,7 +96,7 @@ class SoftEnv:
         self.transform = NormalisationMobileNet()
         self.device = ('cuda' if torch.cuda.is_available() else 'cpu')
         print('[INFO]: Models are using {0}'.format(self.device))
-        self.min_zoom = 5
+        self.min_zoom = 6
         self.model_resolution = model_resolution
         self.cv = cv2.cuda if check_cuda() else cv2
         self.states = np.arange(2 * 2 * (4 ** 6) * 3).reshape((2, 2, 4, 4, 4, 4, 4, 4, 3))
@@ -105,6 +105,7 @@ class SoftEnv:
         self.nb_action = 7
         self.vision = np.zeros(7, dtype=int)
         self.nb_max_actions = max_nb_actions
+        self.pad = 2
 
         self.item_model = build_model(False).to(self.device)
         checkpoint = torch.load(item_model, map_location=torch.device(self.device))
@@ -131,8 +132,8 @@ class SoftEnv:
         self.marked_map = np.zeros((self.W, self.H), dtype=bool)
         self.nb_actions_taken = 0
         self.z = self.min_zoom
-        self.x = random.randint(0, int(self.W / (2 ** self.z) - 1))
-        self.y = random.randint(0, int(self.H / (2 ** self.z) - 1))
+        self.x = random.randint(0, int(self.W / (self.pad ** self.z) - 1))
+        self.y = random.randint(0, int(self.H / (self.pad ** self.z) - 1))
         self.compute_sub_img()
         img = self.transform(self.sub_img)
         self.pred_boat = self.get_boat_prediction(img)
@@ -149,9 +150,9 @@ class SoftEnv:
         """
         self.full_img = cv2.cvtColor(cv2.imread(image), cv2.COLOR_BGR2RGB)
         self.H, self.W, self.channels = self.full_img.shape
-        self.max_zoom = int(math.log(np.min([self.W, self.H]), 2))
+        self.max_zoom = int(math.log(np.min([self.W, self.H]),self.pad))
 
-        self.bb_map = np.zeros((self.H, self.W), dtype=np.uint8)
+        self.bb_map = np.zeros((self.H, self.W))
         with open(labels, "r") as file:
             lines = file.read()
         for i, line in enumerate(lines.split('\n')):
@@ -172,7 +173,7 @@ class SoftEnv:
         """
         Get the current sub images given by the x, y and z axis.
         """
-        window = 2 ** self.z
+        window = self.pad ** self.z
         self.sub_img = self.full_img[window * self.y:window + window * self.y, window * self.x:window + window * self.x]
         self.sub_img = self.cv.resize(self.sub_img, (self.model_resolution, self.model_resolution))
 
@@ -229,7 +230,7 @@ class SoftEnv:
         :param position: the current x, y, z axis
         """
         x, y, z = position
-        window = 2 ** z
+        window = self.pad ** z
         sub_mark = self.marked_map[window * y:window + window * y, window * x:window + window * x]
         return True if np.count_nonzero(sub_mark) else False
 
@@ -237,7 +238,7 @@ class SoftEnv:
         """
         this method allow the agent to mark a position
         """
-        window = 2 ** self.z
+        window = self.pad ** self.z
         self.marked.append((self.x, self.y, self.z))
         self.marked_map[window * self.x:window + window * self.x, window * self.y:window + window * self.y] = True
 
@@ -270,11 +271,11 @@ class SoftEnv:
 
         self.vision[0] = Event.BLOCKED.value if self.x <= 0 else self.vision[0]
         self.vision[1] = Event.BLOCKED.value if (self.x + 1) >= self.W / (
-                self.model_resolution ** self.z) else self.vision[1]
+                self.pad ** self.z) else self.vision[1]
 
         self.vision[2] = Event.BLOCKED.value if self.y <= 0 else self.vision[2]
         self.vision[3] = Event.BLOCKED.value if (self.y + 1) >= self.H / (
-                self.model_resolution ** self.z) else self.vision[3]
+                self.pad ** self.z) else self.vision[3]
 
         self.vision[4] = Event.BLOCKED.value if self.z - 1 < self.min_zoom else self.vision[4]
         self.vision[5] = Event.BLOCKED.value if self.z + 1 >= self.max_zoom else self.vision[5]
@@ -285,13 +286,20 @@ class SoftEnv:
     def get_reward(self, action):
         reward = -1
 
+
         if action == Action.MARK and not self.marked[-1] in self.marked[:-1]:
-            window = 2 ** self.z
+            window = self.pad ** self.z
             marked = self.bb_map[window * self.x:window + window * self.x, window * self.y:window + window * self.y]
-            reward += np.count_nonzero(marked) * self.min_zoom / self.z
+            nb_boat_marked = np.count_nonzero(marked > 0)
+            reward += nb_boat_marked / marked.size * 100
 
         elif action == Action.MARK:
             reward -= 100
+
+        elif action == Action.ZOOM:
+            window = self.pad ** self.z
+            marked = self.bb_map[window * self.x:window + window * self.x, window * self.y:window + window * self.y]
+            reward += 5 if np.count_nonzero(marked > 0) else 0
 
         if self.history[-1] in self.history[:-1]:
             reward -= 10
@@ -315,8 +323,8 @@ class SoftEnv:
             self.z -= 1 if self.vision[4] != Event.BLOCKED.value else 0
         elif action == Action.DEZOOM:
             if self.vision[5] != Event.BLOCKED.value:
-                self.x = int(self.x / self.model_resolution)
-                self.y = int(self.y / self.model_resolution)
+                self.x = int(self.x / self.pad)
+                self.y = int(self.y / self.pad)
                 self.z += 1
         elif action == Action.MARK:
             self.mark()
