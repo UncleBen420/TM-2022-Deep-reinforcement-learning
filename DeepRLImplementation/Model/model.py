@@ -56,10 +56,5 @@ class MobileRLNET(nn.Module):
         #HAPPEND /!\
         return self.Q(mb_output)
 
-    def predict_action(self):
-        if np.random.binomial(1, self.e):
-            return random.randrange(self.n_outputs)
-        return np.argmax(self.agent.Q[state])
-
     def update(self):
         pred = self.model(state1_batch)
