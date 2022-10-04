@@ -1,5 +1,5 @@
 # This is a sample Python script.
-from model import MobileRLNET
+from Model.model import MobileRLNET
 
 # Press Shift+F10 to execute it or replace it with your code.
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
