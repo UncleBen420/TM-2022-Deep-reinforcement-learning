@@ -71,7 +71,7 @@ class SoftEnv:
     """
     this class implement the grid world problem as a frozen lake problem.
     """
-    def __init__(self, model_resolution, item_model, surface_model, max_nb_actions=1000):
+    def __init__(self, model_resolution, max_nb_actions=1000):
         self.bb_map = None
         self.marked_image = None
         self.max_zoom = 0
@@ -94,7 +94,6 @@ class SoftEnv:
         self.min_zoom = 5
         self.model_resolution = model_resolution
         self.cv = cv2.cuda if check_cuda() else cv2
-        self.states = np.arange(2 * 2 * (4 ** 6) * 3).reshape((2, 2, 4, 4, 4, 4, 4, 4, 3))
         self.pred_boat = 0
         self.pred_surf = 0
         self.nb_action = 7
@@ -119,9 +118,7 @@ class SoftEnv:
         self.x = random.randint(0, int(self.W / (2 ** self.z) - 1))
         self.y = random.randint(0, int(self.H / (2 ** self.z) - 1))
         self.compute_sub_img()
-        img = self.transform(self.sub_img)
-        self.pred_boat = self.get_boat_prediction(img)
-        self.pred_surf = self.get_surface_prediction(img)
+
         self.get_vision()
 
         return self.get_current_state()
@@ -170,43 +167,18 @@ class SoftEnv:
         img_pil = Image.fromarray(img)
         return self.transform(img_pil)
 
-    def get_prediction(self, model, img):
-        """
-        Get the prediction for the given model of the given image
-        :param model: the model which analyse the image
-        :param img: the image that will be analyse
-        :return: the prediction (0 or 1)
-        """
-        with torch.no_grad():
-            img = img.unsqueeze(0).to(self.device)
-            outputs = model(img)
-            _, preds = torch.max(outputs.data, 1)
-            pred = preds.cpu().detach().numpy()[0]
-        return pred
-
-    def get_boat_prediction(self, img):
-        """
-        return True if a boat is detected.
-        :param img: the image that will be analysed
-        """
-        return self.get_prediction(self.item_model, img)
-
-    def get_surface_prediction(self, img):
-        """
-        return True if the sub image is on the water.
-        :param img: the image that will be analysed
-        """
-        return self.get_prediction(self.surface_model, img)
-
     def get_current_state(self):
         """
         Return a number representing the current state of the environment.
         :return: the current state
         """
-        return \
-            self.states[self.pred_boat][self.pred_surf][self.vision[0]][self.vision[1]][
-                self.vision[2]][
-                self.vision[3]][self.vision[4]][self.vision[5]][self.vision[6]]
+        self.compute_sub_img()
+        self.get_vision()
+        img = self.transform(self.sub_img)
+        vision = self.vision + np.random.rand(1 , len(self.vision)) / 100.0
+        vision = torch.from_numpy(vision).float()
+
+        return img, vision
 
     def is_already_marked(self, position):
         """
@@ -264,14 +236,12 @@ class SoftEnv:
         self.vision[4] = Event.BLOCKED.value if self.z - 1 < self.min_zoom else self.vision[4]
         self.vision[5] = Event.BLOCKED.value if self.z + 1 >= self.max_zoom else self.vision[5]
 
-    def get_nb_state(self):
-        return self.states.size
 
     def get_reward(self, action):
         reward = -1
 
         if action == Action.MARK and not self.marked[-1] in self.marked[:-1]:
-            window = self.model_resolution ** self.z
+            window = 2 ** self.z
             marked = self.bb_map[window * self.x:window + window * self.x, window * self.y:window + window * self.y]
             reward += np.count_nonzero(marked) * 10
             reward -= marked.size - np.count_nonzero(marked)
@@ -306,17 +276,10 @@ class SoftEnv:
         elif action == Action.MARK:
             self.mark()
 
-        self.compute_sub_img()
-        self.get_vision()
-        img = self.transform(self.sub_img)
-        self.pred_boat = self.get_boat_prediction(img)
-        self.pred_surf = self.get_surface_prediction(img)
         self.nb_actions_taken += 1
         is_terminal = self.nb_max_actions <= self.nb_actions_taken or self.get_marked_percent() < 5.
 
         return self.get_current_state(), self.get_reward(action), is_terminal
-
-
 
     def compute_boat_prediction_map(self):
         max_pad_y = int(self.W / self.model_resolution)

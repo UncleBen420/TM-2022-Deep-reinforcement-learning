@@ -11,7 +11,7 @@ class QLearning:
     Implementation of the off-policy algorithme QLearning
     """
 
-    def __init__(self, environment, Q,policy, alpha=0.1, gamma=0.1, episodes=100, dataset_size=64):
+    def __init__(self, environment, Q, policy, alpha=0.1, gamma=0.1, episodes=100, dataset_size=64):
         self.environment = environment
         self.a = alpha
         self.gamma = gamma

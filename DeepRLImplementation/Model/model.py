@@ -10,17 +10,17 @@ from tqdm import tqdm
 
 from Model.dataset import MobileRLNetDataset
 
-VISION_SIZE = 5
+VISION_SIZE = 7
 MOBILENET_RES = 224
 BATCH_SIZE = 16
 NUM_WORKERS = 4
 
 
 class MobileRLNET(nn.Module):
-    def __init__(self, n_hidden_nodes=32, learning_rate=0.01, device='cpu', fine_tune=True):
+    def __init__(self, n_hidden_nodes=32, learning_rate=0.01, fine_tune=True):
         super(MobileRLNET, self).__init__()
 
-        self.device = device
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.n_inputs = 1000
         self.n_outputs = 7
         self.n_hidden_nodes = n_hidden_nodes
