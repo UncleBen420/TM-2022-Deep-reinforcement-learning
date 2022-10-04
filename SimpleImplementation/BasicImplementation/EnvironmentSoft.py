@@ -131,8 +131,8 @@ class SoftEnv:
         self.marked_map = np.zeros((self.W, self.H), dtype=bool)
         self.nb_actions_taken = 0
         self.z = random.randint(1, self.max_zoom - 1)
-        self.x = random.randint(0, int(self.W / (self.model_resolution ** self.z) - 1))
-        self.y = random.randint(0, int(self.H / (self.model_resolution ** self.z) - 1))
+        self.x = random.randint(0, int(self.W / (2 ** self.z) - 1))
+        self.y = random.randint(0, int(self.H / (2 ** self.z) - 1))
         self.compute_sub_img()
         img = self.transform(self.sub_img)
         self.pred_boat = self.get_boat_prediction(img)
