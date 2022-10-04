@@ -290,7 +290,8 @@ class SoftEnv:
         if action == Action.MARK and not self.marked[-1] in self.marked[:-1]:
             window = self.model_resolution ** self.z
             marked = self.bb_map[window * self.x:window + window * self.x, window * self.y:window + window * self.y]
-            reward += 100 if np.count_nonzero(marked) else -50
+            reward += np.count_nonzero(marked) * 10
+            reward -= marked.size - np.count_nonzero(marked)
         elif action == Action.MARK:
             reward -= 100
 
