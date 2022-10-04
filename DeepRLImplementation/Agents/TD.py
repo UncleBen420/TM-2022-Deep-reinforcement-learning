@@ -42,11 +42,12 @@ class QLearning:
 
                 while True:
                     # for visualisation
+                    Q_pred = self.Q.predict(S)
+                    A = self.policy.chose_action(Q_pred)
 
-                    A = self.policy.chose_action(S)
                     S_prime, R, is_terminal = self.environment.take_action(A)
-
-                    self.Q[S][A] += self.a * (R + self.gamma * np.max(self.Q[S_prime]) - self.Q[S][A])
+                    Q_pred_prime = self.Q.predict(S_prime)
+                    Q_pred += self.a * (R + self.gamma * np.max(self.Q[S_prime]) - Q_pred_prime)
                     # evaluation of V
                     self.V[S] += self.a * (R + self.gamma * self.V[S_prime] - self.V[S])
                     S = S_prime

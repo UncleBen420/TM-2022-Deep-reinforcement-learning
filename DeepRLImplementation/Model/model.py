@@ -6,6 +6,9 @@ import torch
 from torch import nn
 import torchvision.models as models
 
+VISION_SIZE = 5
+MOBILENET_RES = 224
+
 
 class MobileRLNET(nn.Module):
     def __init__(self, n_hidden_nodes=32, learning_rate=0.01, device='cpu', fine_tune=True):
@@ -41,7 +44,7 @@ class MobileRLNET(nn.Module):
 
         # Define policy head
         self.Q = nn.Sequential(
-            nn.Linear(self.n_hidden_nodes, self.n_hidden_nodes),
+            nn.Linear(self.n_hidden_nodes + VISION_SIZE, self.n_hidden_nodes),
             nn.ReLU(),
             nn.Linear(self.n_hidden_nodes, self.n_outputs)
         )
@@ -52,9 +55,40 @@ class MobileRLNET(nn.Module):
         self.optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
 
     def predict(self, vision, img):
-        mb_output = self.mb_net(img)
-        #HAPPEND /!\
-        return self.Q(mb_output)
+        with torch.no_grad():
+            mb_output = self.mb_net(img)
+            x = torch.cat((mb_output, vision), dim=1)
+            return self.Q(x)
 
-    def update(self):
+    def update(self, batch):
+        train_running_loss = 0.0
+        train_running_correct = 0
+        counter = 0
+        iters = len(trainloader)
+        for i, data in tqdm(enumerate(trainloader), total=len(trainloader)):
+            torch.cuda.empty_cache()
+            counter += 1
+            image, labels = data
+            image = image.to(device)
+            labels = labels.to(device)
+            optimizer.zero_grad()
+            # Forward pass.
+            outputs = model(image)
+            # Calculate the loss.
+            loss = criterion(outputs, labels)
+            train_running_loss += loss.item()
+            # Calculate the accuracy.
+            _, preds = torch.max(outputs.data, 1)
+            train_running_correct += (preds == labels).sum().item()
+            # Backpropagation.
+            loss.backward()
+            # Update the weights.
+            optimizer.step()
+            if scheduler is not None:
+                scheduler.step(epoch + i / iters)
+
+        # Loss and accuracy for the complete epoch.
+        epoch_loss = train_running_loss / counter
+        epoch_acc = (train_running_correct / len(trainloader.dataset))
+        return epoch_loss, epoch_acc
         pred = self.model(state1_batch)
