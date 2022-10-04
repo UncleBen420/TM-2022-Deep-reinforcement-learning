@@ -56,4 +56,4 @@ class MobileRLNET(nn.Module):
         return self.Q(mb_output)
 
     def update(self):
-        pass
+        pred = self.model(state1_batch)

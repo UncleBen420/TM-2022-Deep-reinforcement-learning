@@ -364,8 +364,7 @@ class SoftEnv:
     def render_marked_map(self):
         marked_image = np.zeros((self.H, self.W, self.channels), dtype=np.uint8)
         marked_image[self.bb_map > 0] = [0, 255, 0]
-        marked_image2 = np.zeros((self.H, self.W, self.channels), dtype=np.uint8)
-        marked_image2[self.marked_map] = [255, 0, 0]
+        marked_image[self.marked_map] = [255, 0, 0]
         return self.cv.addWeighted(marked_image, 0.4, self.full_img, 0.6, 0)
 
 
