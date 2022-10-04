@@ -16,11 +16,4 @@ class MobileRLNetDataset(Dataset):
 
     def __getitem__(self, idx):
         image, vision, g = self.trajectory[idx]
-#        if torch.is_tensor(idx):
-#            idx = idx.tolist()
-
-        y = g
-
-        vision = torch.FloatTensor(vision)
-
-        return (image[0], vision[0]), y
+        return (image[0], vision[0]), g[0]

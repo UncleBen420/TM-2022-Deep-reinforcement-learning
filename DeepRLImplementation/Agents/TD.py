@@ -34,6 +34,7 @@ class QLearning:
 
         with tqdm(range(self.episodes), unit="episode") as episode:
             for _ in episode:
+                episode_loss = []
 
                 S = self.environment.reload_env()
 
@@ -53,7 +54,7 @@ class QLearning:
 
                     # Learning step:
                     if len(dataset) >= self.dataset_size:
-                        loss.append(self.Q.update(dataset))
+                        episode_loss.append(self.Q.update(dataset))
                         dataset.clear()
 
                     S = S_prime
@@ -63,13 +64,14 @@ class QLearning:
                     if is_terminal:
                         break
 
-                mv = np.mean(self.V)
+                ml = np.mean(episode_loss)
                 bl = self.environment.get_marked_percent()
                 st = self.environment.nb_actions_taken
                 rewards.append(reward)
                 boats_left.append(bl)
+                loss.append(ml)
 
-                episode.set_postfix(mean_v=mv, rewards=reward, boats_left=bl, steps_taken=st)
+                episode.set_postfix(mean_loss=ml, rewards=reward, boats_left=bl, steps_taken=st)
 
             return loss, rewards, boats_left
 
