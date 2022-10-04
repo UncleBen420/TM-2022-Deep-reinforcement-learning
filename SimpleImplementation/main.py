@@ -11,4 +11,4 @@ if __name__ == '__main__':
     ql.fit()
 
     plt.imshow(se.render_marked_map())
-    plt.imshow()
+    plt.show()
