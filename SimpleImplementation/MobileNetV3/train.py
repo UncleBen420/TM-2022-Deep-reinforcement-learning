@@ -99,7 +99,7 @@ if __name__ == '__main__':
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = True
 
-    dataset_classes = ['ship', 'not-ship']
+    dataset_classes = ['water', 'ground']
 
     # Construct the argument parser.
     parser = argparse.ArgumentParser()
@@ -181,11 +181,6 @@ if __name__ == '__main__':
         print(f"Validation loss: {valid_epoch_loss:.3f}, validation acc: {valid_epoch_acc:.3f}")
         print('-' * 50)
         time.sleep(5)
-
-    plt.plot(train_loss, label="train loss")
-    plt.plot(valid_loss, label="test loss")
-    plt.plot(train_acc, label="train acc")
-    plt.plot(valid_acc, label="test acc")
 
     # Save the trained model weights.
     save_model(epochs, model, optimizer, criterion)
