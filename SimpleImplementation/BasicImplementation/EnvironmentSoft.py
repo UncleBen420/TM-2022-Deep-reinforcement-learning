@@ -243,7 +243,8 @@ class SoftEnv:
         """
         this method allow the agent to mark a position
         """
-        window = self.pad << (self.z - self.min_zoom - 1)
+        window = self.pad << self.z
+        window = window >> self.min_zoom + 1
         self.marked.append((self.x, self.y, self.z))
         self.marked_map[window * self.x:window + window * self.x, window * self.y:window + window * self.y] = True
 
@@ -282,7 +283,7 @@ class SoftEnv:
         self.vision[3] = Event.BLOCKED.value if (self.y + 1) >= self.H / (
                 self.pad << self.z) else self.vision[3]
 
-        self.vision[4] = Event.BLOCKED.value if self.z - 1 <= self.min_zoom else self.vision[4]
+        self.vision[4] = Event.BLOCKED.value if self.z - 1 < self.min_zoom else self.vision[4]
         self.vision[5] = Event.BLOCKED.value if self.z + 1 >= self.max_zoom else self.vision[5]
 
     def get_nb_state(self):
@@ -292,7 +293,10 @@ class SoftEnv:
         reward = -1
 
         if action == Action.MARK and not self.marked[-1] in self.marked[:-1]:
-            window = self.pad << (self.z - self.min_zoom - 1)
+
+            window = self.pad << self.z
+            window = window >> self.min_zoom + 1
+
             marked = self.bb_map[window * self.x:window + window * self.x, window * self.y:window + window * self.y]
             nb_boat_marked = np.count_nonzero(marked)
             reward += nb_boat_marked * 10
