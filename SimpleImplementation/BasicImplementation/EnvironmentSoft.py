@@ -378,7 +378,7 @@ class SoftEnv:
         marked_image = np.zeros((int(self.H / padding), int(self.W / padding), self.channels), dtype=np.uint8)
         marked_image[self.bb_map] = [0, 255, 0]
         marked_image[self.marked_map] = [255, 0, 0]
-        self.marked_image = self.cv.resize(self.marked_image, (self.H, self.W), cv2.INTER_CUBIC)
+        marked_image = self.cv.resize(marked_image, (self.H, self.W), cv2.INTER_CUBIC)
         return self.cv.addWeighted(marked_image, 0.4, self.full_img, 0.6, 0)
 
 
