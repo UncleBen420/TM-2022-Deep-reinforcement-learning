@@ -9,6 +9,3 @@ if __name__ == '__main__':
     se.init_env("/home/remy/Documents/P9467.png", "/home/remy/Documents/P9467.txt")
     ql = QLearning(se, E_Greedy(0.1), episodes=10)
     ql.fit()
-
-    plt.imshow(se.render_marked_map())
-    plt.show()

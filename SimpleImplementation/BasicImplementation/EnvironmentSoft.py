@@ -14,6 +14,7 @@ import torch
 from PIL import Image
 from albumentations.pytorch import ToTensorV2
 import albumentations as A
+from matplotlib import pyplot as plt
 
 from MobileNetV3.model import build_model
 
@@ -96,7 +97,7 @@ class SoftEnv:
         self.transform = NormalisationMobileNet()
         self.device = ('cuda' if torch.cuda.is_available() else 'cpu')
         print('[INFO]: Models are using {0}'.format(self.device))
-        self.min_zoom = 7
+        self.min_zoom = 4
         self.model_resolution = model_resolution
         self.cv = cv2.cuda if check_cuda() else cv2
         self.states = np.arange(2 * 2 * (4 ** 6) * 3).reshape((2, 2, 4, 4, 4, 4, 4, 4, 3))
@@ -129,11 +130,12 @@ class SoftEnv:
 
         self.history = []
         self.marked = []
-        self.marked_map = np.zeros((self.W, self.H), dtype=bool)
+        padding = self.pad << self.min_zoom
+        self.marked_map = np.zeros((int(self.W / padding), int(self.H / padding)), dtype=bool)
         self.nb_actions_taken = 0
         self.z = self.min_zoom
-        self.x = random.randint(0, int(self.W / (self.pad ** self.z) - 1))
-        self.y = random.randint(0, int(self.H / (self.pad ** self.z) - 1))
+        self.x = random.randint(0, int(self.W / (self.pad << self.z) - 1))
+        self.y = random.randint(0, int(self.H / (self.pad << self.z) - 1))
         self.compute_sub_img()
         img = self.transform(self.sub_img)
         self.pred_boat = self.get_boat_prediction(img)
@@ -150,30 +152,33 @@ class SoftEnv:
         """
         self.full_img = cv2.cvtColor(cv2.imread(image), cv2.COLOR_BGR2RGB)
         self.H, self.W, self.channels = self.full_img.shape
-        self.max_zoom = int(math.log(np.min([self.W, self.H]),self.pad))
-
-        self.bb_map = np.zeros((self.H, self.W))
+        self.max_zoom = int(math.log(np.min([self.W, self.H]),self.pad)) - 1
+        padding = self.pad << self.min_zoom
+        self.H_ = int(self.H / padding)
+        self.W_ = int(self.W / padding)
+        self.bb_map = np.zeros((self.H_, self.W_), dtype=bool)
         with open(labels, "r") as file:
             lines = file.read()
         for i, line in enumerate(lines.split('\n')):
             if len(line.split(' ')) > 1:
                 _, x_min, x_max, y_min, y_max = line.split(' ')
-                x_min = int(float(x_min))
-                x_max = int(float(x_max))
-                y_min = int(float(y_min))
-                y_max = int(float(y_max))
+                x_min = int(float(x_min) / padding)
+                x_max = int(float(x_max) / padding) + 1
+                y_min = int(float(y_min) / padding)
+                y_max = int(float(y_max) / padding) + 1
 
-                self.bb_map[y_min:y_max, x_min:x_max] = i + 1
+                self.bb_map[y_min:y_max, x_min:x_max] = True
 
-        self.marked_image = np.zeros((self.H, self.W, self.channels), dtype=np.uint8)
-        self.marked_image[self.bb_map > 0] = [255, 0, 0]
-        self.marked_image = self.cv.addWeighted(self.marked_image, 0.3, self.full_img, 0.7, 0)
+        self.marked_image = np.zeros((self.H_, self.W_, self.channels), dtype=np.uint8)
+        self.marked_image[self.bb_map] = [255, 0, 0]
+        self.marked_image = self.cv.resize(self.marked_image, (self.H, self.W), cv2.INTER_CUBIC)
+        self.marked_image = self.cv.addWeighted(self.marked_image, 0.5, self.full_img, 0.5, 0)
 
     def compute_sub_img(self):
         """
         Get the current sub images given by the x, y and z axis.
         """
-        window = self.pad ** self.z
+        window = self.pad << self.z
         self.sub_img = self.full_img[window * self.y:window + window * self.y, window * self.x:window + window * self.x]
         self.sub_img = self.cv.resize(self.sub_img, (self.model_resolution, self.model_resolution))
 
@@ -230,7 +235,7 @@ class SoftEnv:
         :param position: the current x, y, z axis
         """
         x, y, z = position
-        window = self.pad ** z
+        window = self.pad << z
         sub_mark = self.marked_map[window * y:window + window * y, window * x:window + window * x]
         return True if np.count_nonzero(sub_mark) else False
 
@@ -238,7 +243,7 @@ class SoftEnv:
         """
         this method allow the agent to mark a position
         """
-        window = self.pad ** self.z
+        window = self.pad << (self.z - self.min_zoom - 1)
         self.marked.append((self.x, self.y, self.z))
         self.marked_map[window * self.x:window + window * self.x, window * self.y:window + window * self.y] = True
 
@@ -271,13 +276,13 @@ class SoftEnv:
 
         self.vision[0] = Event.BLOCKED.value if self.x <= 0 else self.vision[0]
         self.vision[1] = Event.BLOCKED.value if (self.x + 1) >= self.W / (
-                self.pad ** self.z) else self.vision[1]
+                self.pad << self.z) else self.vision[1]
 
         self.vision[2] = Event.BLOCKED.value if self.y <= 0 else self.vision[2]
         self.vision[3] = Event.BLOCKED.value if (self.y + 1) >= self.H / (
-                self.pad ** self.z) else self.vision[3]
+                self.pad << self.z) else self.vision[3]
 
-        self.vision[4] = Event.BLOCKED.value if self.z - 1 < self.min_zoom else self.vision[4]
+        self.vision[4] = Event.BLOCKED.value if self.z - 1 <= self.min_zoom else self.vision[4]
         self.vision[5] = Event.BLOCKED.value if self.z + 1 >= self.max_zoom else self.vision[5]
 
     def get_nb_state(self):
@@ -287,16 +292,11 @@ class SoftEnv:
         reward = -1
 
         if action == Action.MARK and not self.marked[-1] in self.marked[:-1]:
-            window = self.pad ** self.z
+            window = self.pad << (self.z - self.min_zoom - 1)
             marked = self.bb_map[window * self.x:window + window * self.x, window * self.y:window + window * self.y]
-            nb_boat_marked = np.count_nonzero(marked > 0)
-            percent = nb_boat_marked / marked.size * 100
-            if percent >= 50:
-                reward += 1000
-            elif percent >= 20:
-                reward += 100
-            else:
-                reward -= 50
+            nb_boat_marked = np.count_nonzero(marked)
+            reward += nb_boat_marked * 10
+            reward -= (marked.size - nb_boat_marked) * 10
 
         elif action == Action.MARK:
             reward -= 100
@@ -370,9 +370,11 @@ class SoftEnv:
         return self.cv.addWeighted(prediction_map, 0.3, self.full_img, 0.7, 0)
 
     def render_marked_map(self):
-        marked_image = np.zeros((self.H, self.W, self.channels), dtype=np.uint8)
-        marked_image[self.bb_map > 0] = [0, 255, 0]
+        padding = self.pad << self.min_zoom
+        marked_image = np.zeros((int(self.H / padding), int(self.W / padding), self.channels), dtype=np.uint8)
+        marked_image[self.bb_map] = [0, 255, 0]
         marked_image[self.marked_map] = [255, 0, 0]
+        self.marked_image = self.cv.resize(self.marked_image, (self.H, self.W), cv2.INTER_CUBIC)
         return self.cv.addWeighted(marked_image, 0.4, self.full_img, 0.6, 0)
 
 
