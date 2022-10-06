@@ -70,7 +70,7 @@ class QLearning:
                         dataset.pop(0)
 
                     S = S_prime
-                    V_sum += V.numpy()[0][0]
+                    V_sum += V.to("cpu").numpy()[0][0]
                     reward += R
 
                     if is_terminal:
