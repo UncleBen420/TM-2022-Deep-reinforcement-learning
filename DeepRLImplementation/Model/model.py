@@ -84,28 +84,26 @@ class MobileRLNET(nn.Module):
 
         counter = 0
         iters = len(dataloader)
-        with tqdm(enumerate(dataloader), unit="batch", total=len(dataloader)) as batches:
-            for i, data in batches:
-                counter += 1
-                S, y = data
-                y = y.to(self.device)
+        for i, data in enumerate(dataloader):
+            counter += 1
+            S, y = data
+            y = y.to(self.device)
 
-                # Reset the gradient
-                self.optimizer.zero_grad()
+            # Reset the gradient
+            self.optimizer.zero_grad()
 
-                # Forward pass.
-                outputs = self.predict_with_grad(S).squeeze()
+            # Forward pass.
+            outputs = self.predict_with_grad(S).squeeze()
 
-                # Calculate the loss.
-                loss = self.loss_fn(outputs, y)
-                train_running_loss += loss.item()
+            # Calculate the loss.
+            loss = self.loss_fn(outputs, y)
+            train_running_loss += loss.item()
 
-                # Backpropagation.
-                loss.backward()
+            # Backpropagation.
+            loss.backward()
 
-                # Update the weights.
-                self.optimizer.step()
-                batches.set_postfix(loss=train_running_loss)
+            # Update the weights.
+            self.optimizer.step()
 
         # Loss for the complete epoch.
         return train_running_loss / counter

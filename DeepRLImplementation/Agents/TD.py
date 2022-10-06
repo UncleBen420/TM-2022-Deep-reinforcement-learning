@@ -4,20 +4,22 @@ This file implement 3 learning agent algorithme: Q-learning, N-step Sarsa and Mo
 import random
 from abc import ABC, abstractmethod
 import numpy as np
+import torch
 from tqdm import tqdm
+
 
 class QLearning:
     """
     Implementation of the off-policy algorithme QLearning
     """
 
-    def __init__(self, environment, Q, policy, alpha=0.1, gamma=0.1, episodes=100, dataset_size=64):
+    def __init__(self, environment, model, policy, alpha=0.1, gamma=0.1, episodes=100, dataset_size=64):
         self.environment = environment
         self.a = alpha
         self.gamma = gamma
         self.episodes = episodes
         self.dataset_size = dataset_size
-        self.Q = Q
+        self.model = model
         self.policy = policy
         self.policy.set_agent(self)
         self.nb_action = environment.nb_action
@@ -31,53 +33,55 @@ class QLearning:
         rewards = []
         boats_left = []
         dataset = []
+        v = []
 
         with tqdm(range(self.episodes), unit="episode") as episode:
+            bl=100
+            st = self.environment.nb_max_actions
             for _ in episode:
                 episode_loss = []
 
                 S = self.environment.reload_env()
 
                 reward = 0
-
+                V_sum = 0
+                counter = 0
                 while True:
                     # for visualisation
-                    Q_pred = self.Q.predict(S)
-                    A = self.policy.chose_action(Q_pred.numpy().astype(dtype=int))
+                    Q, V = self.model.predict(S)
+                    A = self.policy.chose_action(Q.numpy().astype(dtype=int))
 
                     S_prime, R, is_terminal = self.environment.take_action(A)
-                    Q_pred_prime = self.Q.predict(S_prime)
-                    Q_pred += self.a * (R + self.gamma * Q_pred_prime - Q_pred)
+                    Q_prime, V_prime = self.model.predict(S_prime)
+                    Qy = R + self.gamma * ((not is_terminal) * torch.max(Q_prime))
+                    Vy = R + self.gamma * ((not is_terminal) * V_prime.squeeze())
 
                     img, vision = S
-                    dataset.append((img, vision, Q_pred))
+                    dataset.append((img, vision, Qy.detach(), Vy.detach(), A))
 
                     # Learning step:
                     if len(dataset) >= self.dataset_size:
-                        episode_loss.append(self.Q.update(dataset))
+                        loss_q, loss_v = self.model.update(dataset)
+                        episode_loss.append(loss_q)
                         dataset.clear()
 
                     S = S_prime
-
+                    V_sum += V.numpy()[0][0]
                     reward += R
 
                     if is_terminal:
                         break
 
-                ml = np.mean(episode_loss)
+                    counter += 1
+
                 bl = self.environment.get_marked_percent()
-                st = self.environment.nb_actions_taken
                 rewards.append(reward)
                 boats_left.append(bl)
-                loss.append(ml)
+                loss.append(np.mean(episode_loss))
+                v.append(V_sum / counter)
+                episode.set_postfix(Q_loss=loss[-1], V=v[-1], rewards=reward, boats_left=bl)
 
-                episode.set_postfix(mean_loss=ml, rewards=reward, boats_left=bl, steps_taken=st)
-
-            return loss, rewards, boats_left
-
-    def get_policy(self):
-        return np.argmax(self.Q, axis=1)
-
+            return loss, v, rewards, boats_left
 
 class Policy(ABC):
     """
@@ -143,36 +147,3 @@ class E_Greedy(Policy):
         nb_greedy = np.count_nonzero(greedy_actions)  # number of max actions
         non_greedy_probability = self.e / len(Q)
         return greedy_actions * ((1 - self.e) / nb_greedy) + non_greedy_probability
-
-
-def incremental_mean(reward, state, action, nb_step, Q):
-    """
-    do the incremental mean between a reward and the expected value
-    :param Q: the Q function represented by a lookup table
-    :param nb_step: number of time a incremental mean as been called
-    :param state: the current state
-    :param action: the action taken
-    :param reward: is the reward given by the environment
-    :return: the mean value
-    """
-    nb_step[state][action] += 1
-
-    Q[state][action] += (reward - Q[state][action]) / nb_step[state][action]
-    return nb_step, Q
-
-
-def incremental_mean_V(reward, state, nb_step, V):
-    """
-    do the incremental mean between a reward and the expected
-    value for a V function
-    :param V: the V function for every State
-    :param nb_step: number of time a incremental mean as been called
-    :param state: the current state
-    :param reward: is the reward given by the environment
-    :return: the mean value
-    """
-    nb_step[state] += 1
-    V[state] += (reward - V[state]) / nb_step[state]
-    return nb_step, V
-
-

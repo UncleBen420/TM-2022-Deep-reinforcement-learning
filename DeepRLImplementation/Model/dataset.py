@@ -15,5 +15,5 @@ class MobileRLNetDataset(Dataset):
         return len(self.trajectory)
 
     def __getitem__(self, idx):
-        image, vision, g = self.trajectory[idx]
-        return (image[0], vision[0]), g[0]
+        image, vision, Qy, Vy, A = self.trajectory[idx]
+        return (image[0], vision[0]), Qy, Vy, A
