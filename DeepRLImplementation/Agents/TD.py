@@ -13,12 +13,14 @@ class QLearning:
     Implementation of the off-policy algorithme QLearning
     """
 
-    def __init__(self, environment, model, policy, alpha=0.1, gamma=0.1, episodes=100, dataset_size=64):
+    def __init__(self, environment, model, policy, alpha=0.1, gamma=0.1,
+                 episodes=100, dataset_size=64, dataset_max_size=1024):
         self.environment = environment
         self.a = alpha
         self.gamma = gamma
         self.episodes = episodes
         self.dataset_size = dataset_size
+        self.dataset_max_size = dataset_max_size
         self.model = model
         self.policy = policy
         self.policy.set_agent(self)
@@ -48,22 +50,24 @@ class QLearning:
                 counter = 0
                 while True:
                     # for visualisation
-                    Q, V = self.model.predict(S)
-                    A = self.policy.chose_action(Q.numpy().astype(dtype=int))
+                    Q, V = self.model.predict_no_grad(S)
+                    A = self.policy.chose_action(Q.to("cpu").numpy().astype(dtype=int))
 
                     S_prime, R, is_terminal = self.environment.take_action(A)
-                    Q_prime, V_prime = self.model.predict(S_prime)
-                    Qy = R + self.gamma * ((not is_terminal) * torch.max(Q_prime))
-                    Vy = R + self.gamma * ((not is_terminal) * V_prime.squeeze())
-
+                    #Q_prime = self.model.predict(S_prime)
+                    #Qy = R + self.gamma * ((not is_terminal) * torch.max(Q_prime))
+                    #Vy = R + self.gamma * ((not is_terminal) * V_prime.squeeze())
                     img, vision = S
-                    dataset.append((img, vision, Qy.detach(), Vy.detach(), A))
+                    img_prime, vision_prime = S_prime
+                    dataset.append((img, vision, A, R, img_prime, vision_prime, is_terminal))
 
                     # Learning step:
                     if len(dataset) >= self.dataset_size:
-                        loss_q, loss_v = self.model.update(dataset)
+                        loss_q, loss_v = self.model.update(dataset, self.gamma)
                         episode_loss.append(loss_q)
-                        dataset.clear()
+
+                    if len(dataset) >= self.dataset_max_size:
+                        dataset.pop(0)
 
                     S = S_prime
                     V_sum += V.numpy()[0][0]

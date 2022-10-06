@@ -17,7 +17,7 @@ NUM_WORKERS = 4
 
 
 class DummyNET(nn.Module):
-    def __init__(self, n_hidden_nodes=64, learning_rate=0.01):
+    def __init__(self, n_hidden_nodes=64, learning_rate=0.01, batch_size=32):
         super(DummyNET, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -26,7 +26,7 @@ class DummyNET(nn.Module):
         self.n_hidden_nodes = n_hidden_nodes
         self.learning_rate = learning_rate
         self.action_space = np.arange(self.n_outputs)
-
+        self.batch_size = batch_size
         self.loss_fn = torch.nn.MSELoss()
 
         self.dummy_net = nn.Sequential(
@@ -45,6 +45,7 @@ class DummyNET(nn.Module):
             nn.Linear(128, self.n_hidden_nodes),
             nn.ReLU()
         )
+        self.dummy_net.to(self.device)
 
         self.Q = nn.Sequential(
             nn.Linear(self.n_hidden_nodes + VISION_SIZE, self.n_hidden_nodes),
@@ -53,6 +54,7 @@ class DummyNET(nn.Module):
             nn.ReLU(),
             nn.Linear(32, self.n_outputs)
         )
+        self.Q.to(self.device)
 
         self.V = nn.Sequential(
             nn.Linear(self.n_hidden_nodes + VISION_SIZE, self.n_hidden_nodes),
@@ -61,12 +63,11 @@ class DummyNET(nn.Module):
             nn.ReLU(),
             nn.Linear(32, 1)
         )
+        self.V.to(self.device)
 
-        if self.device == 'cuda':
-            self.net.cuda()
         self.optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
 
-    def predict(self, State):
+    def predict_no_grad(self, State):
         img, vision = State
         with torch.no_grad():
             mb_output = self.dummy_net(img.to(self.device))
@@ -79,44 +80,59 @@ class DummyNET(nn.Module):
         x = torch.cat((mb_output, vision.to(self.device)), dim=1)
         return self.Q(x), self.V(x)
 
-    def prepare_batch(self, batch):
-        dataset = MobileRLNetDataset(batch)
-        return DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKERS)
+    def prepare_batch(self, dataset):
+        #dataset = MobileRLNetDataset(batch)
+        #return DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKERS)
+        batch = random.sample(dataset, self.batch_size)
 
-    def update(self, batch):
-        dataloader = self.prepare_batch(batch)
+        I1 = torch.cat([i1 for (i1, v1, a, r, i2, v2, d) in batch])
+        V1 = torch.cat([v1 for (i1, v1, a, r, i2, v2, d) in batch])
+        A = torch.Tensor([a for (i1, v1, a, r, i2, v2, d) in batch]).to(self.device)
+        R = torch.Tensor([r for (i1, v1, a, r, i2, v2, d) in batch]).to(self.device)
+        I2 = torch.cat([i2 for (i1, v1, a, r, i2, v2, d) in batch])
+        V2 = torch.cat([v2 for (i1, v1, a, r, i2, v2, d) in batch])
+        done = torch.Tensor([d for (i1, v1, a, r, i2, v2, d) in batch]).to(self.device)
 
-        Q_running_loss, V_running_loss = 0., 0.
-
-        counter = 0
-        iters = len(dataloader)
-        for i, data in enumerate(dataloader):
-            counter += 1
-            S, Qy, Vy, A = data
-            Qy = Qy.to(self.device)
-            Vy = Vy.to(self.device)
-
-            # Reset the gradient
-            self.optimizer.zero_grad()
-
-            # Forward pass.
-            Q, V = self.predict_with_grad(S)
-            Qx = Q.gather(dim=1, index=A.long().unsqueeze(dim=1)).squeeze()
-            Vx = V.squeeze()
-
-            # Calculate the loss.
-            loss_Q = self.loss_fn(Qx, Qy)
-            loss_V = self.loss_fn(Vx, Vy)
-            Q_running_loss += loss_Q.item()
-            V_running_loss += loss_V.item()
-
-            # Backpropagation.
-            loss_V.backward(retain_graph=True)
-            loss_Q.backward()
+        return (I1, V1), A, R, (I2, V2), done
 
 
-            # Update the weights.
-            self.optimizer.step()
+    def update(self, dataset, gamma):
+        S, A, R, S_prime, done = self.prepare_batch(dataset)
+        i, v = S
+
+        Q, V = self.predict_no_grad(S)
+        Q_prime, V_prime = self.predict_with_grad(S_prime)
+
+        Qy = R + gamma * (1 - done) * torch.max(Q_prime, 1)[0]
+        Vy = R + gamma * (1 - done) * V_prime.squeeze()
+        Qx = Q.gather(dim=1, index=A.long().unsqueeze(dim=1)).squeeze()
+        Vx = V.squeeze(1)
+
+        #S, Qy, Vy, A = data
+        #Qy = Qy.to(self.device)
+        #Vy = Vy.to(self.device)
+
+        # Reset the gradient
+        #self.optimizer.zero_grad()
+
+        # Forward pass.
+        #Q, V = self.predict_with_grad(S)
+        #Qx = Q.gather(dim=1, index=A.long().unsqueeze(dim=1)).squeeze()
+        #Vx = V.squeeze()
+
+        # Calculate the loss.
+        loss_Q = self.loss_fn(Qx, Qy)
+        loss_V = self.loss_fn(Vx, Vy)
+        Q_running_loss = loss_Q.item()
+        V_running_loss = loss_V.item()
+
+        # Backpropagation.
+        loss_V.backward(retain_graph=True)
+        loss_Q.backward()
+
+
+        # Update the weights.
+        self.optimizer.step()
 
         # Loss for the complete epoch.
-        return Q_running_loss / counter, V_running_loss / counter
+        return Q_running_loss, V_running_loss
