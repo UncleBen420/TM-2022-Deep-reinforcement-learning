@@ -14,7 +14,7 @@ class QLearning:
     """
 
     def __init__(self, environment, model, policy, alpha=0.1, gamma=0.1,
-                 episodes=100, dataset_size=64, dataset_max_size=1024):
+                 episodes=100, dataset_size=32, dataset_max_size=64):
         self.environment = environment
         self.a = alpha
         self.gamma = gamma
@@ -62,11 +62,11 @@ class QLearning:
                     dataset.append((img, vision, A, R, img_prime, vision_prime, is_terminal))
 
                     # Learning step:
-                    if len(dataset) >= self.dataset_size:
+                    if len(dataset) > self.dataset_size:
                         loss_q, loss_v = self.model.update(dataset, self.gamma)
                         episode_loss.append(loss_q)
 
-                    if len(dataset) >= self.dataset_max_size:
+                    if len(dataset) > self.dataset_max_size:
                         dataset.pop(0)
 
                     S = S_prime

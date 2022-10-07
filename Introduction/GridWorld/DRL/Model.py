@@ -8,8 +8,6 @@ import torchvision.models as models
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from Model.dataset import MobileRLNetDataset
-
 VISION_SIZE = 7
 MODEL_RES = 16
 BATCH_SIZE = 16
@@ -17,12 +15,12 @@ NUM_WORKERS = 4
 
 
 class DummyNET(nn.Module):
-    def __init__(self, n_hidden_nodes=64, learning_rate=0.01, batch_size=16):
+    def __init__(self, n_inputs, n_hidden_nodes=64, learning_rate=0.1, batch_size=16):
         super(DummyNET, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.n_inputs = 1000
-        self.n_outputs = 7
+        self.n_inputs = n_inputs
+        self.n_outputs = 4
         self.n_hidden_nodes = n_hidden_nodes
         self.learning_rate = learning_rate
         self.action_space = np.arange(self.n_outputs)
@@ -30,17 +28,7 @@ class DummyNET(nn.Module):
         self.loss_fn = torch.nn.MSELoss()
 
         self.dummy_net = nn.Sequential(
-            nn.Conv2d(1, 4, 3),
-            nn.ReLU(),
-            nn.Dropout(p=0.2, inplace=False),
-            nn.Conv2d(4, 8, 5),
-            nn.ReLU(),
-            nn.Dropout(p=0.2, inplace=False),
-            nn.Conv2d(8, 16, 7),
-            nn.ReLU(),
-            nn.Dropout(p=0.2, inplace=False),
-            nn.Flatten(),
-            nn.Linear(256, 128),
+            nn.Linear(n_inputs, 128),
             nn.ReLU(),
             nn.Linear(128, self.n_hidden_nodes),
             nn.ReLU()
@@ -48,8 +36,6 @@ class DummyNET(nn.Module):
         self.dummy_net.to(self.device)
 
         self.Q = nn.Sequential(
-            nn.Linear(self.n_hidden_nodes + VISION_SIZE, self.n_hidden_nodes),
-            nn.ReLU(),
             nn.Linear(self.n_hidden_nodes, 32),
             nn.ReLU(),
             nn.Linear(32, self.n_outputs)
@@ -57,8 +43,6 @@ class DummyNET(nn.Module):
         self.Q.to(self.device)
 
         self.V = nn.Sequential(
-            nn.Linear(self.n_hidden_nodes + VISION_SIZE, self.n_hidden_nodes),
-            nn.ReLU(),
             nn.Linear(self.n_hidden_nodes, 32),
             nn.ReLU(),
             nn.Linear(32, 1)
@@ -68,32 +52,24 @@ class DummyNET(nn.Module):
         self.optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
 
     def predict_no_grad(self, State):
-        img, vision = State
         with torch.no_grad():
-            mb_output = self.dummy_net(img.to(self.device))
-            x = torch.cat((mb_output, vision.to(self.device)), dim=1)
+            x = self.dummy_net(State.to(self.device))
             return self.Q(x), self.V(x)
 
     def predict_with_grad(self, State):
-        img, vision = State
-        mb_output = self.dummy_net(img.to(self.device))
-        x = torch.cat((mb_output, vision.to(self.device)), dim=1)
+        x = self.dummy_net(State.to(self.device))
         return self.Q(x), self.V(x)
 
     def split_dataset(self, dataset):
         return [dataset[x:x + self.batch_size] for x in range(0, len(dataset), self.batch_size)]
 
     def prepare_batch(self, batch):
-        I1 = torch.cat([i1 for (i1, v1, a, r, i2, v2, d) in batch])
-        V1 = torch.cat([v1 for (i1, v1, a, r, i2, v2, d) in batch])
-        A = torch.LongTensor([a for (i1, v1, a, r, i2, v2, d) in batch]).to(self.device)
-        R = torch.FloatTensor([r for (i1, v1, a, r, i2, v2, d) in batch]).to(self.device)
-        I2 = torch.cat([i2 for (i1, v1, a, r, i2, v2, d) in batch])
-        V2 = torch.cat([v2 for (i1, v1, a, r, i2, v2, d) in batch])
-        done = torch.FloatTensor([d for (i1, v1, a, r, i2, v2, d) in batch]).to(self.device)
-
-        return (I1, V1), A, R, (I2, V2), done
-
+        S1 = torch.stack([s1 for (s1, a, r, s2, d) in batch])
+        A = torch.LongTensor([a for (s1, a, r, s2, d) in batch]).to(self.device)
+        R = torch.FloatTensor([r for (s1, a, r, s2, d) in batch]).to(self.device)
+        S2 = torch.stack([s2 for (s1, a, r, s2, d) in batch])
+        done = torch.FloatTensor([d for (s1, a, r, s2, d) in batch]).to(self.device)
+        return S1, A, R, S2, done
 
     def update(self, dataset, gamma):
         counter = 0
@@ -122,6 +98,7 @@ class DummyNET(nn.Module):
             # Backpropagation.
             loss_V.backward(retain_graph=True)
             loss_Q.backward()
+
 
             # Update the weights.
             self.optimizer.step()

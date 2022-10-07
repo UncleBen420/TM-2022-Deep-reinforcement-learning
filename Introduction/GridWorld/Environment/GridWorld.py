@@ -156,6 +156,20 @@ class Board:
 
         return False
 
+    def get_env_vision(self, S):
+        env = np.zeros_like(self.states, dtype=np.double)
+
+        for i, s in enumerate(self.states):
+
+            if s.value["code"] == 'X':
+                env[i] = 2
+            elif s.value["code"] == 'O':
+                env[i] = 3
+
+            if S == i:
+                env[i] = 1
+        return env / 3
+
     def move_agent(self, action):
         """
         this method allow the agent to move from one state to another.
