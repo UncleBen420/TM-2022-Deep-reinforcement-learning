@@ -7,7 +7,6 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-
 class QLearning:
     """
     Implementation of the off-policy algorithme QLearning
@@ -25,6 +24,7 @@ class QLearning:
         self.policy = policy
         self.policy.set_agent(self)
         self.nb_action = environment.nb_action
+        self.buffer = None
 
     def fit(self):
         """
@@ -60,10 +60,9 @@ class QLearning:
                     img, vision = S
                     img_prime, vision_prime = S_prime
                     dataset.append((img, vision, A, R, img_prime, vision_prime, is_terminal))
-
                     # Learning step:
                     if len(dataset) > self.dataset_size:
-                        loss_q, loss_v = self.model.update(dataset, self.gamma)
+                        loss_q, loss_v = self.model.update(self.model.split_random(dataset), self.gamma)
                         episode_loss.append(loss_q)
 
                     if len(dataset) > self.dataset_max_size:

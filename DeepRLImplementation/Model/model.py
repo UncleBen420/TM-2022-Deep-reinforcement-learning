@@ -8,8 +8,6 @@ import torchvision.models as models
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from Model.dataset import MobileRLNetDataset
-
 VISION_SIZE = 7
 MOBILENET_RES = 224
 BATCH_SIZE = 16

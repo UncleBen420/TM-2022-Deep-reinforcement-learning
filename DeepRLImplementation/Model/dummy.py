@@ -8,8 +8,6 @@ import torchvision.models as models
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from Model.dataset import MobileRLNetDataset
-
 VISION_SIZE = 7
 MODEL_RES = 16
 BATCH_SIZE = 16
@@ -81,7 +79,7 @@ class DummyNET(nn.Module):
         return self.Q(x), self.V(x)
 
     def split_dataset(self, dataset):
-        return [dataset[x:x + self.batch_size] for x in range(0, len(dataset), self.batch_size)]
+        return self.prepare_batch([dataset[x:x + self.batch_size] for x in range(0, len(dataset), self.batch_size)])
 
     def prepare_batch(self, batch):
         I1 = torch.cat([i1 for (i1, v1, a, r, i2, v2, d) in batch])
@@ -94,10 +92,12 @@ class DummyNET(nn.Module):
 
         return (I1, V1), A, R, (I2, V2), done
 
+    def split_random(self, dataset):
+        return [random.sample(dataset, self.batch_size)]
 
-    def update(self, dataset, gamma):
+    def update(self, batches, gamma):
         counter = 0
-        for batch in self.split_dataset(dataset):
+        for batch in batches:
 
             if len(batch) < self.batch_size:
                 continue
