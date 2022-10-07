@@ -8,7 +8,7 @@ import torchvision.models as models
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-VISION_SIZE = 7
+VISION_SIZE = 16384
 MODEL_RES = 16
 BATCH_SIZE = 16
 NUM_WORKERS = 4

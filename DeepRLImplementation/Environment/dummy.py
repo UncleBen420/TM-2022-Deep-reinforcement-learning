@@ -224,9 +224,14 @@ class DummyEnv:
 
     def get_current_state(self):
         img = self.transform(self.sub_img).float()
-        vision = self.vision / 3 + np.random.rand(1, len(self.vision)) / 100.0
-        vision = torch.FloatTensor(vision)
-        return img.unsqueeze(0), vision
+        #vision = self.vision / 3 + np.random.rand(1, len(self.vision)) / 100.0
+        #vision = torch.FloatTensor(vision)
+        vision = np.zeros_like(self.marked_map, dtype=np.double)
+        vision[self.marked_map] = 0.5
+        window = self.pad ** self.z
+        vision[window * self.x:window + window * self.x, window * self.y:window + window * self.y] = 1.
+        vision = torch.FloatTensor(vision.reshape(-1))
+        return img.unsqueeze(0), vision.unsqueeze(0)
 
     def mark(self):
         self.marked.append((self.x, self.y, self.z))

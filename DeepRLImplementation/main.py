@@ -2,7 +2,8 @@
 import imageio
 import matplotlib.pyplot as plt
 
-from Agents.TD import QLearning, E_Greedy
+from Agents.TD import QLearning
+from Agents.policy import E_Greedy
 from Environment.dummy import DummyEnv
 from Environment.environment import SoftEnv
 from Model.dummy import DummyNET
@@ -16,7 +17,7 @@ from Model.model import MobileRLNET
 if __name__ == '__main__':
     se = DummyEnv()
     se.init_env()
-    ql = QLearning(se, DummyNET(learning_rate=0.01), E_Greedy(0.1), episodes=300)
+    ql = QLearning(se, DummyNET(learning_rate=0.01), E_Greedy(0.1), episodes=10)
     loss, v, rewards, boats_left = ql.fit()
 
     plt.plot(loss)
