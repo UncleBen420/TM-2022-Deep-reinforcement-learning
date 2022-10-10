@@ -2,6 +2,7 @@
 This file implement a dummy environment to train the agents on and compare them. The term "Soft" mean that the
 states of the environment are not linked to it's size (contrary to a grid world for exemple).
 """
+import math
 import random
 from enum import Enum
 import cv2
@@ -14,8 +15,7 @@ class Piece(Enum):
     this enum class simplify the representation of the different
     pieces on the board.
     """
-    BOAT = {"code": 'B', 'label': 0}
-    HOUSE = {"code": 'H', 'label': 1}
+    CHARLIE = {"code": 'B', 'label': 0}
     WATER = {"code": '~', 'label': 2}
     GROUND = {"code": '^', 'label': 3}
 
@@ -26,8 +26,7 @@ class Event(Enum):
     """
     UNKNOWN = 0
     VISITED = 1
-    MARKED = 2
-    BLOCKED = 3
+    BLOCKED = 2
 
 
 class Action(Enum):
@@ -49,7 +48,10 @@ class DummyEnv:
     He must not mark place where there is house.
     """
 
-    def __init__(self, size=64, model_resolution=2, max_zoom=4, nb_max_actions=100):
+    def __init__(self, size=64, model_resolution=2, max_zoom=4, nb_max_actions=100, replace_charlie=True, full_vision=True, deep=False):
+        self.charlie_y = 0
+        self.charlie_x = 0
+        self.reward_grid = None
         self.nb_actions_taken = 0
         self.grid = None
         self.history = []
@@ -58,9 +60,15 @@ class DummyEnv:
         self.nb_actions_taken = 0
         self.nb_max_actions = nb_max_actions
         self.nb_action = 7
+        self.deep_res = 5
+        if full_vision:
+            self.deep_states_size = self.deep_res + 3
+        else:
+            self.deep_states_size = self.deep_res + 7
         self.size = size
         self.model_resolution = model_resolution
-        self.max_zoom = max_zoom
+        self.max_zoom = int(math.log(size, self.model_resolution)) - 1
+        self.max_move = int(self.size / self.model_resolution)
         self.z = max_zoom - 1
         self.x = 0
         self.y = 0
@@ -70,7 +78,13 @@ class DummyEnv:
         self.dummy_boat_model = None
         self.dummy_surface_model = None
         self.vision = np.zeros(7, dtype=int)
-        self.states = np.arange(2 * 2 * (4 ** 6) * 3).reshape((2, 2, 4, 4, 4, 4, 4, 4, 3))
+        self.replace_charlie = replace_charlie
+        self.full_vision = full_vision
+        self.deep = deep
+        if full_vision:
+            self.states = np.arange(2 * 3 * self.max_zoom * self.max_move * self.max_move).reshape((2, 3, self.max_zoom, self.max_move, self.max_move))
+        else:
+            self.states = np.arange(2 * 3 * (3 ** 6) * 2).reshape((2, 3, 3, 3, 3, 3, 3, 3, 2))
 
         def model_probalities(i):
             """
@@ -79,17 +93,25 @@ class DummyEnv:
             :param i: the Piece that is analysed.
             :return: the changed value of i
             """
-            if i is Piece.BOAT:
+            if i is Piece.CHARLIE:
                 # simulate a neural network, the more the agent zoom the more the probability of
                 # seeing the boat increase
-                if not np.random.binomial(1, 9. * (10 ** (-1 * self.z))):
+                if not np.random.binomial(1, .95 / self.z):
                     i = Piece.WATER
-            elif i is Piece.HOUSE:
-                if not np.random.binomial(1, 9. * (10 ** (-1 * self.z))):
-                    i = Piece.GROUND
             return i
 
         self.get_probabilities = np.vectorize(model_probalities)
+
+    def place_charlie(self):
+        while True:
+            self.grid[self.charlie_x][self.charlie_y] = Piece.WATER
+            x = random.randint(0, self.size - 1)
+            y = random.randint(1, self.size - 1)
+            if self.grid[x][y] is Piece.WATER and self.grid[x][y - 1] is Piece.GROUND:
+                self.grid[x][y] = Piece.CHARLIE
+                self.charlie_x = x
+                self.charlie_y = y
+                break
 
     def reload_env(self):
         """
@@ -105,14 +127,25 @@ class DummyEnv:
         self.marked = []
         self.marked_map = np.zeros((self.size, self.size), dtype=bool)
         self.nb_actions_taken = 0
-        self.z = random.randint(1, self.max_zoom - 1)
-        self.x = random.randint(0, self.size / (self.model_resolution ** self.z) - 1)
-        self.y = random.randint(0, self.size / (self.model_resolution ** self.z) - 1)
+        self.z = 1
+        #self.x = random.randint(0, self.max_move - 1)
+        #self.y = random.randint(0, self.max_move - 1)
+        self.x = 0
+        self.y = 0
+        self.nb_mark = 0
+        if self.replace_charlie:
+            self.place_charlie()
+
         self.compute_sub_grid()
         self.fit_dummy_model()
         self.get_vision()
 
-        return self.get_current_state()
+        if self.deep:
+            S = self.get_current_state_deep()
+        else:
+            S = self.get_current_state()
+
+        return S
 
     def init_env(self):
 
@@ -130,23 +163,10 @@ class DummyEnv:
                         temp[i][j] = Piece.WATER
             self.grid = temp
 
-        def place_boat(i):
-            if i is Piece.WATER:
-                p = random.normalvariate(0.3, 0.3)
-                if p > 0.8:
-                    return Piece.BOAT
-            return i
-
-        def place_car(i):
-            if i is Piece.GROUND:
-                p = random.normalvariate(0.3, 0.3)
-                if p > 0.7:
-                    return Piece.HOUSE
-            return i
-
         self.grid = np.full((self.size * self.size), Piece.GROUND, dtype=Piece)
+        self.reward_grid = np.zeros((self.size, self.size))
 
-        for i in range(10):
+        for i in range(5):
             self.grid[i] = Piece.WATER
 
         np.random.shuffle(self.grid)
@@ -155,15 +175,16 @@ class DummyEnv:
         for _ in range(10):
             dilate()
 
-        place_all_boat = np.vectorize(place_boat)
-        self.grid = place_all_boat(self.grid)
+        self.place_charlie()
 
-        place_all_car = np.vectorize(place_car)
-        self.grid = place_all_car(self.grid)
+
 
     def compute_sub_grid(self):
         window = self.model_resolution ** self.z
         self.sub_grid = self.grid[window * self.x:window + window * self.x, window * self.y:window + window * self.y]
+
+    def get_distance_reward(self):
+        return math.sqrt((self.x - self.charlie_x) ** 2 + (self.y - self.charlie_y) ** 2 + (self.z - 1) ** 2)
 
     def get_vision(self):
         move_set = [(self.x - 1, self.y, self.z),
@@ -177,8 +198,6 @@ class DummyEnv:
         for i in range(7):
             if move_set[i] in self.history:
                 self.vision[i] = Event.VISITED.value
-            elif move_set[i] in self.marked:
-                self.vision[i] = Event.MARKED.value
             else:
                 self.vision[i] = Event.UNKNOWN.value
 
@@ -195,49 +214,62 @@ class DummyEnv:
 
     def fit_dummy_model(self):
         proba = self.get_probabilities(self.sub_grid)
-        self.dummy_boat_model = 1 if np.count_nonzero(proba == Piece.BOAT) else 0
-        self.dummy_surface_model = int(np.count_nonzero(proba == Piece.WATER) > np.count_nonzero(
-            proba == Piece.GROUND))
+        self.dummy_boat_model = 1 if np.count_nonzero(proba == Piece.CHARLIE) else 0
+        if np.count_nonzero(proba == Piece.GROUND) and np.count_nonzero(proba == Piece.WATER):
+            self.dummy_surface_model = 2
+        elif np.count_nonzero(proba == Piece.WATER):
+            self.dummy_surface_model = 1
+        else:
+            self.dummy_surface_model = 0
 
     def get_current_state(self):
-        return \
-            self.states[self.dummy_boat_model][self.dummy_surface_model][self.vision[0]][self.vision[1]][
-                self.vision[2]][
-                self.vision[3]][self.vision[4]][self.vision[5]][self.vision[6]]
+        if self.full_vision:
+            return self.states[self.dummy_boat_model][self.dummy_surface_model][self.z - 1][self.x][self.y]
+
+        return self.states[self.dummy_boat_model][self.dummy_surface_model][self.vision[0]][self.vision[1]][
+            self.vision[2]][self.vision[3]][self.vision[4]][self.vision[5]][self.vision[6]]
+
+    def sub_grid_value(self, i):
+        """
+        This function is vectorize over all the pieces on the subgrid. It gives the probability of having
+        a boat or a house.
+        :param i: the Piece that is analysed.
+        :return: the changed value of i
+        """
+        return i.value['label']
+
+    def get_current_state_deep(self):
+
+        #get_val = np.vectorize(self.sub_grid_value)
+        #vision = get_val(self.sub_grid)
+
+        #index_i = np.random.randint(0, self.sub_grid.shape[0], size=self.deep_res)
+        #index_j = np.random.randint(0, self.sub_grid.shape[0], size=self.deep_res)
+
+        deep_vision = []
+        #for i in range(self.deep_res):
+        #    deep_vision.append(vision[index_i[i]][index_j[i]] / 3)
+        deep_vision.append(self.dummy_boat_model)
+        deep_vision.append(self.dummy_surface_model / 2)
+        if self.full_vision:
+
+            deep_vision.append(self.x)
+            deep_vision.append(self.y)
+            deep_vision.append(self.z)
+            return np.array(deep_vision)
+
+        return np.append(deep_vision, (self.vision / 2)) + np.random.rand(9) / 100.0
+
 
     def get_nb_state(self):
         return self.states.size
-
-    def mark(self):
-        self.marked.append((self.x, self.y, self.z))
-
-    def get_marked_map(self):
-        window = self.model_resolution ** self.z
-        self.marked_map[window * self.x:window + window * self.x, window * self.y:window + window * self.y] = True
-
-    def get_remaining_piece(self, piece):
-        total_piece = np.count_nonzero(self.grid == piece)
-        marked_piece = np.count_nonzero(self.grid[self.marked_map] == piece)
-        return (total_piece - marked_piece) / total_piece * 100
-
-    def get_reward(self, action):
-        reward = -1
-
-        if action == Action.MARK and not self.marked[-1] in self.marked[:-1]:
-            reward += np.count_nonzero(self.sub_grid == Piece.BOAT) * 10
-            reward -= np.count_nonzero(self.sub_grid == Piece.HOUSE) * 10
-        elif action == Action.MARK:
-            reward -= 100
-
-        if self.history[-1] in self.history[:-1]:
-            reward -= 10
-
-        return reward
 
     def take_action(self, action):
         action = Action(action)
 
         self.history.append((self.x, self.y, self.z))
+
+        self.compute_sub_grid()
 
         if action == Action.LEFT:
             self.x -= 1 if self.vision[0] != Event.BLOCKED.value else 0
@@ -254,17 +286,33 @@ class DummyEnv:
                 self.x = int(self.x / self.model_resolution)
                 self.y = int(self.y / self.model_resolution)
                 self.z += 1
-        elif action == Action.MARK:
-            self.mark()
-            self.get_marked_map()
 
-        self.compute_sub_grid()
         self.get_vision()
         self.fit_dummy_model()
         self.nb_actions_taken += 1
-        is_terminal = self.nb_max_actions <= self.nb_actions_taken or self.get_remaining_piece(Piece.BOAT) <= 5.
 
-        return self.get_current_state(), self.get_reward(action), is_terminal
+        self.get_current_state_deep()
+
+        reward = self.get_distance_reward()
+        if self.history[-1] in self.history[:-1]:
+            reward = - reward ** 2
+
+        is_terminal = self.nb_max_actions <= self.nb_actions_taken
+
+        if action == Action.MARK:
+            self.nb_mark += 1
+            if self.z <= 1 and np.count_nonzero(self.sub_grid == Piece.CHARLIE):
+                is_terminal = True
+                reward = 10000
+            else:
+                reward = - reward ** 2
+
+        if self.deep:
+            S = self.get_current_state_deep()
+        else:
+            S = self.get_current_state()
+
+        return S, reward, is_terminal
 
     def render_grid(self, grid):
         """
@@ -285,7 +333,7 @@ class DummyEnv:
             visual += '_'
         return visual
 
-    def render_board_img(self, map, color):
+    def render_board_img(self):
         """
         this method allow to get a image representation of the board in
         the form of a numpy array.
@@ -299,21 +347,20 @@ class DummyEnv:
 
                 render = np.ones((10, 10, 3), dtype=np.uint8)
 
-                if self.grid[i][j] == Piece.BOAT:
-                    icon = PieceRender.BOAT.value
-                elif self.grid[i][j] == Piece.HOUSE:
-                    icon = PieceRender.HOUSE.value
+                if self.grid[i][j] == Piece.CHARLIE:
+                    icon = PieceRender.CHARLIE.value
+                    color = [1, 0, 0]
                 elif self.grid[i][j] == Piece.WATER:
                     icon = PieceRender.WATER.value
+                    color = [0, 0, 1]
                 elif self.grid[i][j] == Piece.GROUND:
                     icon = PieceRender.GROUND.value
+                    color = [1, 1, 1]
 
                 icon = np.array(icon, dtype=np.uint8)
                 render *= icon[:, :, None]
-                if map[i][j]:
-                    render[:, :] *= np.uint8(color)
 
-                visual[(i * 10):((i + 1) * 10), (j * 10):((j + 1) * 10)][:] *= render
+                visual[(i * 10):((i + 1) * 10), (j * 10):((j + 1) * 10)][:] *= render * np.array(color, dtype=np.uint8)
 
         return visual * 255
 
@@ -326,15 +373,15 @@ class DummyEnv:
         :param name: the name of the gif file
         """
         frames = []
-        mm = self.render_board_img(self.marked_map, [1, 0, 0])
-        for iteration in self.history:
-            temp_map = np.zeros((self.size, self.size), dtype=bool)
+        mm = self.render_board_img()
+        for i in self.history:
 
-            window = self.model_resolution ** iteration[2]
-            temp_map[window * iteration[0]:window + window * iteration[0]
-            , window * iteration[1]:window + window * iteration[1]] = True
+            window = (self.model_resolution ** i[2]) * 10
+            mm[window * i[0]:window + window * i[0]
+              ,window * i[1]:window + window * i[1]] = mm[window * i[0]:window + window * i[0]
+                                                         ,window * i[1]:window + window * i[1]] >> [0, 1, 0]
 
-            frames.append(cv2.bitwise_and(self.render_board_img(temp_map, [0, 0, 1]), mm))
+            frames.append(mm.copy())
 
         imageio.mimsave(name, frames, duration=0.05)
 
@@ -343,16 +390,16 @@ class PieceRender(Enum):
     """
     this enum class represent the visualisation of the board.
     """
-    BOAT = [[0, 0, 0, 0, 0, 1, 1, 0, 0, 0],
-            [0, 0, 0, 0, 0, 1, 1, 1, 0, 0],
-            [0, 0, 0, 0, 0, 1, 0, 0, 0, 0],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [0, 1, 0, 0, 0, 0, 0, 0, 1, 0],
-            [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
-            [0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
-            [1, 0, 1, 0, 1, 0, 1, 0, 1, 0],
-            [1, 0, 1, 0, 1, 0, 1, 0, 1, 0],
-            [0, 0, 0, 1, 0, 0, 0, 1, 0, 0]]
+    CHARLIE = [[0, 0, 0, 0, 1, 1, 0, 0, 0, 0],
+               [0, 0, 0, 0, 1, 1, 0, 0, 0, 0],
+               [0, 0, 0, 1, 0, 0, 0, 1, 0, 0],
+               [0, 0, 1, 1, 1, 1, 1, 1, 1, 0],
+               [0, 0, 1, 0, 0, 0, 0, 0, 1, 0],
+               [0, 0, 1, 0, 1, 0, 1, 0, 1, 0],
+               [0, 0, 1, 0, 0, 0, 0, 0, 1, 0],
+               [0, 0, 0, 1, 0, 0, 0, 1, 0, 0],
+               [0, 0, 0, 0, 1, 1, 1, 0, 0, 0],
+               [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]
 
     HOUSE = [[0, 0, 0, 0, 1, 0, 0, 0, 0, 0],
              [0, 0, 0, 0, 1, 1, 0, 0, 0, 0],

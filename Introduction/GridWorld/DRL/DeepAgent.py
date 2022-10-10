@@ -53,12 +53,10 @@ class DQLearning:
                     dataset.append((Sv, A, R, Sv_prime, self.environment.states[S].value['is_terminal']))
 
                     # Learning step:
-                    if len(dataset) > self.dataset_size:
+                    if len(dataset) >= self.dataset_size:
                         loss_q, loss_v = self.model.update(dataset, self.gamma)
                         episode_loss.append(loss_q)
-
-                    if len(dataset) >= self.dataset_max_size:
-                        dataset.pop(0)
+                        dataset.clear()
 
                     S = S_prime
                     V_sum += V.to("cpu").numpy()

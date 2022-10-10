@@ -2,6 +2,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 from DRL.DeepAgent import DQLearning
+from DRL.Reinforce import Reinforce
 from Environment import Agent
 from Environment.GridWorld import Board
 from N_StepTD.NTD import OffPolicyNStepSarsa
@@ -18,12 +19,16 @@ if __name__ == '__main__':
     fig.tight_layout(h_pad=3, w_pad=3)
 
     DQL = DQLearning(BOARD)
+    Rein = Reinforce(BOARD, BOARD.size * BOARD.size)
     AGENT_QLE = QLearning(BOARD, Agent.E_Greedy(0.05), 0.1, 0.1, 100, 10000)
 
     V, sum_of_reward = AGENT_QLE.fit(True)
     mean_v = np.mean(V, axis=1)
     axs[0].plot(mean_v, label="Q-Learning")
     axs[1].plot(sum_of_reward, label="Q-Learning")
+
+    sum_of_reward = Rein.fit()
+    axs[1].plot(sum_of_reward, label="reinforce")
 
     V, sum_of_reward, loss = DQL.fit(True)
 

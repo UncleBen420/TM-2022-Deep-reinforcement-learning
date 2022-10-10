@@ -33,7 +33,8 @@ class QLearning:
         """
         mean_v = []
         rewards = []
-        boats_left = []
+        nb_mark = []
+        nb_action = []
 
         with tqdm(range(self.episodes), unit="episode") as episode:
             for _ in episode:
@@ -59,15 +60,16 @@ class QLearning:
                         break
 
                 mv = np.mean(self.V)
-                bl = self.environment.get_remaining_piece(Piece.BOAT)
                 st = self.environment.nb_actions_taken
+                nbm = self.environment.nb_mark
                 mean_v.append(mv)
                 rewards.append(reward)
-                boats_left.append(bl)
+                nb_mark.append(nbm)
+                nb_action.append(st)
 
-                episode.set_postfix(mean_v=mv, rewards=reward, boats_left=bl, steps_taken=st)
+                episode.set_postfix(mean_v=mv, rewards=reward, steps_taken=st, nb_marked=nbm)
 
-            return mean_v, rewards, boats_left
+            return mean_v, rewards, nb_mark, nb_action
 
     def get_policy(self):
         return np.argmax(self.Q, axis=1)
@@ -121,7 +123,8 @@ class NStepSarsa:
         """
         mean_v = []
         rewards = []
-        boats_left = []
+        nb_mark = []
+        nb_action = []
 
         with tqdm(range(self.episodes), unit="episode") as episode:
             for _ in episode:
@@ -149,16 +152,18 @@ class NStepSarsa:
                             self.updade_q()
                         break
 
+
                 mv = np.mean(self.V)
-                bl = self.environment.get_remaining_piece(Piece.BOAT)
                 st = self.environment.nb_actions_taken
+                nbm = self.environment.nb_mark
                 mean_v.append(mv)
                 rewards.append(reward)
-                boats_left.append(bl)
+                nb_mark.append(nbm)
+                nb_action.append(st)
 
-                episode.set_postfix(mean_v=mv, rewards=reward, boats_left=bl, steps_taken=st)
+                episode.set_postfix(mean_v=mv, rewards=reward, steps_taken=st, nb_marked=nbm)
 
-        return mean_v, rewards, boats_left
+        return mean_v, rewards, nb_mark, nb_action
 
     def get_policy(self):
         """
@@ -191,7 +196,8 @@ class MonteCarloOnPolicy:
         """
         mean_v = []
         rewards = []
-        boats_left = []
+        nb_mark = []
+        nb_action = []
 
         with tqdm(range(self.episodes), unit="episode") as episode:
             for _ in episode:
@@ -226,16 +232,18 @@ class MonteCarloOnPolicy:
                         self.nb_step_v, self.V = incremental_mean_V(G, S, self.nb_step_v, self.V)
                         first_visit.append(step)
 
+
                 mv = np.mean(self.V)
-                bl = self.environment.get_remaining_piece(Piece.BOAT)
                 st = self.environment.nb_actions_taken
+                nbm = self.environment.nb_mark
                 mean_v.append(mv)
                 rewards.append(reward)
-                boats_left.append(bl)
+                nb_mark.append(nbm)
+                nb_action.append(st)
 
-                episode.set_postfix(mean_v=mv, rewards=reward, boats_left=bl, steps_taken=st)
+                episode.set_postfix(mean_v=mv, rewards=reward, steps_taken=st, nb_marked=nbm)
 
-        return mean_v, rewards, boats_left
+        return mean_v, rewards, nb_mark, nb_action
 
 
 class DummyAgent:

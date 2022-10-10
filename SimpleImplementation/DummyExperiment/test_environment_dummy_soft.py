@@ -74,8 +74,8 @@ class TestEnv:
 
         de = EnvironmentDummySoft.DummyEnv()
         de.init_env()
-        de.sub_grid = np.array([[EnvironmentDummySoft.Piece.WATER, EnvironmentDummySoft.Piece.BOAT],
-                                [EnvironmentDummySoft.Piece.BOAT, EnvironmentDummySoft.Piece.WATER]])
+        de.sub_grid = np.array([[EnvironmentDummySoft.Piece.WATER, EnvironmentDummySoft.Piece.CHARLIE],
+                                [EnvironmentDummySoft.Piece.CHARLIE, EnvironmentDummySoft.Piece.WATER]])
         de.fit_dummy_model()
         assert de.dummy_boat_model == 0
         assert de.dummy_surface_model == 1
@@ -104,8 +104,8 @@ class TestEnv:
         de = EnvironmentDummySoft.DummyEnv()
         de.init_env()
         de.history.append((0, 1, 2))
-        de.sub_grid = np.array([[EnvironmentDummySoft.Piece.WATER, EnvironmentDummySoft.Piece.BOAT],
-                                [EnvironmentDummySoft.Piece.BOAT, EnvironmentDummySoft.Piece.WATER]])
+        de.sub_grid = np.array([[EnvironmentDummySoft.Piece.WATER, EnvironmentDummySoft.Piece.CHARLIE],
+                                [EnvironmentDummySoft.Piece.CHARLIE, EnvironmentDummySoft.Piece.WATER]])
 
         assert de.get_reward(EnvironmentDummySoft.Action.DOWN) == -1
 
@@ -116,8 +116,8 @@ class TestEnv:
         de.marked.append((0, 0, 1))
         assert de.get_reward(EnvironmentDummySoft.Action.MARK) == 19
 
-        de.sub_grid = np.array([[EnvironmentDummySoft.Piece.WATER, EnvironmentDummySoft.Piece.BOAT],
-                                [EnvironmentDummySoft.Piece.BOAT, EnvironmentDummySoft.Piece.HOUSE]])
+        de.sub_grid = np.array([[EnvironmentDummySoft.Piece.WATER, EnvironmentDummySoft.Piece.CHARLIE],
+                                [EnvironmentDummySoft.Piece.CHARLIE, EnvironmentDummySoft.Piece.HOUSE]])
         assert de.get_reward(EnvironmentDummySoft.Action.MARK) == 9
         de.marked.append((0, 2, 1))
         de.marked.append((0, 0, 1))

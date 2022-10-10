@@ -6,6 +6,10 @@ import numpy as np
 from matplotlib import pyplot as plt
 from DummyExperiment import EnvironmentDummySoft
 from DummyExperiment.Agents import DummyAgent, QLearning, E_Greedy, MonteCarloOnPolicy, NStepSarsa, UCB
+from DummyExperiment.DeepAgent.agent import DeepQLearning
+from DummyExperiment.DeepAgent.model import DummyNET
+from DummyExperiment.DeepAgent.policy import E_Greedy_for_deep
+from DummyExperiment.DeepAgent.reinforce import Reinforce
 
 
 class Evaluator:
@@ -80,10 +84,21 @@ class Evaluator:
 
 if __name__ == '__main__':
 
-    de = EnvironmentDummySoft.DummyEnv(nb_max_actions=1000)
+    de = EnvironmentDummySoft.DummyEnv(nb_max_actions=1000, replace_charlie=False, full_vision=True, deep=False)
 
     de.init_env()
     print(de.render_grid(de.grid))
+
+    plt.imshow(de.render_board_img())
+    plt.show()
+    #ql = Reinforce(de, episodes=1000, n_inputs=5)
+    print(de.get_nb_state())
+    ql = DeepQLearning(de, DummyNET(n_inputs=de.get_nb_state()), E_Greedy_for_deep(0.1), episodes=100)
+    #ql = QLearning(de, E_Greedy(0.1), episodes=1000)
+    ql.fit()
+
+    de.get_gif_trajectory("haha.gif")
+
 
     #evaluator = Evaluator(de, 3, 1000, [0.1, 0.2], [0.5, 0.6], [0.01, 0.05])
     #evaluator.evaluate(QLearning, E_Greedy, "Q-Learning")

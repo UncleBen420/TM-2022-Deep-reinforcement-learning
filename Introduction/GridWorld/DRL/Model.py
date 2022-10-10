@@ -15,7 +15,7 @@ NUM_WORKERS = 4
 
 
 class DummyNET(nn.Module):
-    def __init__(self, n_inputs, n_hidden_nodes=64, learning_rate=0.1, batch_size=16):
+    def __init__(self, n_inputs, n_hidden_nodes=64, learning_rate=0.001, batch_size=16):
         super(DummyNET, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
