@@ -93,6 +93,8 @@ class Board:
         self.agent = (0, 0)
 
         self.init_board()
+        self.min_reward = -12
+        self.max_reward = 9
 
     def init_board(self):
         """

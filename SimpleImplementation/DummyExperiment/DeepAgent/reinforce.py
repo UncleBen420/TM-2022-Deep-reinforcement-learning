@@ -1,48 +1,56 @@
+from operator import itemgetter
+
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
 from torch import nn
+from torch.distributions import Categorical
 from tqdm import tqdm
-
 
 class Reinforce:
 
-    def __init__(self, environment, n_inputs, n_actions=7, n_hidden_nodes=256, learning_rate=0.01, episodes=1000, gamma=0.1):
+    def __init__(self, environment, n_inputs, n_actions=6, n_hidden_nodes=128, learning_rate=0.0001,
+                 episodes=100, gamma=0.01, dataset_max_size=4, entropy_coef=0.2):
         self.model = torch.nn.Sequential(
             torch.nn.Linear(n_inputs, n_hidden_nodes),
             torch.nn.ReLU(),
+            torch.nn.Linear(n_hidden_nodes, n_hidden_nodes),
+            torch.nn.ReLU(),
             torch.nn.Linear(n_hidden_nodes, n_actions),
-            torch.nn.Softmax(dim=0)
+            torch.nn.Softmax(dim=-1)
         )
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.action_array = np.arange(n_actions)
+        self.action_space = np.arange(n_actions)
         self.model.to(self.device)
         self.gamma = gamma
         self.environment = environment
         self.episodes = episodes
+        self.dataset_max_size = dataset_max_size
+        self.entropy_coef = entropy_coef
+        self.min_r = environment.min_reward
+        self.max_r = environment.max_reward
 
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
 
+    def predict(self, state):
+        action_probs = self.model(state)
+        return action_probs
 
-    def act_prob(self, state):
-        return self.model(state)
+    def follow_policy(self, action_probs):
+        return np.random.choice(self.action_space, p=action_probs)
 
-    def get_action(self, actions_probabilities):
-        return np.random.choice(self.action_array, p=actions_probabilities.data.numpy())
+    def minmax_scaling(self, x):
+        return (x - self.min_r) / (self.max_r - self.min_r)
 
     def fit(self):
-        all_rewards = []
-        best_rolling = -99999
 
-        loss = []
+        losses = []
         rewards = []
+        dataset = []
         nb_action = []
-        dataset = {}
-        v = []
         nb_mark = []
 
         with tqdm(range(self.episodes), unit="episode") as episode:
-            st = self.environment.nb_max_actions
             for _ in episode:
 
                 episode_loss = []
@@ -51,18 +59,23 @@ class Reinforce:
                 A_batch = []
 
                 S = self.environment.reload_env()
-                S = torch.from_numpy(S).float()
 
                 reward = 0
                 V_sum = 0
-                counter = 0
+
                 while True:
-                    proba = self.act_prob(S)
-                    A = self.get_action(proba)
+                    # casting to torch tensor
+                    S = torch.from_numpy(S).float()
 
-                    S_prime, R, is_terminal = self.environment.take_action(A)
+                    with torch.no_grad():
+                        action_probs = self.predict(S).detach().numpy()
+                    A = np.random.choice(self.action_space, p=action_probs)
+                    S_prime, R, is_terminal, should_have_mark = self.environment.take_action(A)
 
-                    S_prime = torch.from_numpy(S_prime).float()
+                    # we can force the agent to learn to mark with shortcutting the action
+                    if should_have_mark:
+                        print("caca")
+                        A = 5 # mark
 
                     S_batch.append(S)
                     A_batch.append(A)
@@ -73,7 +86,8 @@ class Reinforce:
                     if is_terminal:
                         break
 
-                rewards.append(np.sum(R_batch))
+                sum_episode_reward = np.sum(R_batch)
+                rewards.append(sum_episode_reward)
 
                 G_batch = []
                 for t in range(len(R_batch)):
@@ -84,23 +98,47 @@ class Reinforce:
                         pw += 1
                     G_batch.append(Gt)
 
-                G_batch = torch.tensor(G_batch, dtype=torch.float32, device=self.device)
-                G_batch = (G_batch - torch.mean(G_batch)) / torch.std(G_batch)
-
-                A_batch = torch.tensor(A_batch, dtype=torch.int64, device=self.device)
                 S_batch = torch.stack(S_batch)
+                A_batch = torch.LongTensor(A_batch)
+                G_batch = torch.FloatTensor(G_batch)
+                G_batch = self.minmax_scaling(G_batch)
 
-                P = self.model(S_batch)
-                X = P.gather(dim=1, index=A_batch.view(-1, 1)).squeeze()
+                dataset.append((sum_episode_reward, (S_batch, A_batch, G_batch)))
+                dataset = sorted(dataset, key=itemgetter(0), reverse=True)
 
-                loss = - torch.sum(torch.log(X) * G_batch)
+                if len(dataset) > self.dataset_max_size:
+                    dataset.pop(-1)
 
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
+                counter = 0
+                sum_loss = 0.
+                for _, batch in dataset:
+                    S, A, G = batch
+
+                    # Calculate loss
+                    self.optimizer.zero_grad()
+                    logprob = torch.log(self.predict(S))
+                    selected_logprobs = G * torch.gather(logprob, 1, A.unsqueeze(1)).squeeze()
+                    policy_loss = - selected_logprobs.mean()
+
+                    entropy = Categorical(probs=logprob).entropy()
+                    entropy_loss = - entropy.mean()
+
+                    loss = policy_loss + self.entropy_coef * entropy_loss
+
+                    # Calculate gradients
+                    loss.backward()
+                    # Apply gradients
+                    self.optimizer.step()
+                    sum_loss += loss.item()
+                    counter += 1
+
+                losses.append(sum_loss / counter)
 
                 nbm = self.environment.nb_mark
                 st = self.environment.nb_actions_taken
                 nb_action.append(st)
                 nb_mark.append(nbm)
-                episode.set_postfix(rewards=rewards[-1], steps_taken=st, loss=loss.item(), nb_marked=nbm)
+
+                episode.set_postfix(rewards=rewards[-1], loss=sum_loss / counter, nb_action=st, nb_mark=nbm)
+
+        return rewards, losses, nb_mark, nb_action

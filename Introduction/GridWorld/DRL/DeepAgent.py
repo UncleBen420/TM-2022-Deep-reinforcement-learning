@@ -22,9 +22,6 @@ class DQLearning:
         self.dataset_size = dataset_size
         self.dataset_max_size = dataset_max_size
         self.nb_action = self.environment.nb_action
-        # for evaluation
-        # for visualisation
-
 
     def fit(self, verbose=False):
         if verbose:

@@ -78,6 +78,10 @@ class DummyEnv:
         self.dummy_boat_model = None
         self.dummy_surface_model = None
         self.vision = np.zeros(7, dtype=int)
+
+        self.min_reward = -10000
+        self.max_reward = 10000
+
         self.replace_charlie = replace_charlie
         self.full_vision = full_vision
         self.deep = deep
@@ -85,6 +89,8 @@ class DummyEnv:
             self.states = np.arange(2 * 3 * self.max_zoom * self.max_move * self.max_move).reshape((2, 3, self.max_zoom, self.max_move, self.max_move))
         else:
             self.states = np.arange(2 * 3 * (3 ** 6) * 2).reshape((2, 3, 3, 3, 3, 3, 3, 3, 2))
+
+        self.deep_state = np.zeros((self.max_move, self.max_move, self.max_zoom))
 
         def model_probalities(i):
             """
@@ -184,7 +190,7 @@ class DummyEnv:
         self.sub_grid = self.grid[window * self.x:window + window * self.x, window * self.y:window + window * self.y]
 
     def get_distance_reward(self):
-        return math.sqrt((self.x - self.charlie_x) ** 2 + (self.y - self.charlie_y) ** 2 + (self.z - 1) ** 2)
+        return - math.sqrt((self.x - self.charlie_x) ** 2 + (self.y - self.charlie_y) ** 2 + (self.z - 1) ** 2)
 
     def get_vision(self):
         move_set = [(self.x - 1, self.y, self.z),
@@ -240,25 +246,14 @@ class DummyEnv:
 
     def get_current_state_deep(self):
 
-        #get_val = np.vectorize(self.sub_grid_value)
-        #vision = get_val(self.sub_grid)
-
-        #index_i = np.random.randint(0, self.sub_grid.shape[0], size=self.deep_res)
-        #index_j = np.random.randint(0, self.sub_grid.shape[0], size=self.deep_res)
-
         deep_vision = []
-        #for i in range(self.deep_res):
-        #    deep_vision.append(vision[index_i[i]][index_j[i]] / 3)
-        deep_vision.append(self.dummy_boat_model)
-        deep_vision.append(self.dummy_surface_model / 2)
         if self.full_vision:
+            deep_vision.append(self.dummy_boat_model)
+            deep_vision.append(self.dummy_surface_model)
+            self.deep_state[self.x][self.y][self.z - 1] = 1.
+            return np.append(deep_vision, self.deep_state.squeeze()) + np.random.rand(self.deep_state.size + len(deep_vision))
 
-            deep_vision.append(self.x)
-            deep_vision.append(self.y)
-            deep_vision.append(self.z)
-            return np.array(deep_vision)
-
-        return np.append(deep_vision, (self.vision / 2)) + np.random.rand(9) / 100.0
+        return np.append(deep_vision, (self.vision))
 
 
     def get_nb_state(self):
@@ -299,20 +294,26 @@ class DummyEnv:
 
         is_terminal = self.nb_max_actions <= self.nb_actions_taken
 
+        should_have_mark = self.z <= 1 and np.count_nonzero(self.sub_grid == Piece.CHARLIE)
+
         if action == Action.MARK:
             self.nb_mark += 1
-            if self.z <= 1 and np.count_nonzero(self.sub_grid == Piece.CHARLIE):
+            if should_have_mark:
                 is_terminal = True
                 reward = 10000
             else:
                 reward = - reward ** 2
+        if should_have_mark:
+            reward = 10000
+            is_terminal = True
+            print("dumb_guck")
 
         if self.deep:
             S = self.get_current_state_deep()
         else:
             S = self.get_current_state()
 
-        return S, reward, is_terminal
+        return S, reward, is_terminal, should_have_mark
 
     def render_grid(self, grid):
         """

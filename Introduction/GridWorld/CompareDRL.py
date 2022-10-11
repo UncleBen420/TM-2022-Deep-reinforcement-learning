@@ -18,17 +18,18 @@ if __name__ == '__main__':
     fig.suptitle("Epsilon influence")
     fig.tight_layout(h_pad=3, w_pad=3)
 
-    DQL = DQLearning(BOARD)
-    Rein = Reinforce(BOARD, BOARD.size * BOARD.size)
-    AGENT_QLE = QLearning(BOARD, Agent.E_Greedy(0.05), 0.1, 0.1, 100, 10000)
+    DQL = DQLearning(BOARD, episodes=1000)
+    Rein = Reinforce(BOARD, BOARD.size * BOARD.size, episodes=1000)
+    AGENT_QLE = QLearning(BOARD, Agent.E_Greedy(0.05), 0.1, 0.1, 1000, 1000)
 
     V, sum_of_reward = AGENT_QLE.fit(True)
     mean_v = np.mean(V, axis=1)
     axs[0].plot(mean_v, label="Q-Learning")
     axs[1].plot(sum_of_reward, label="Q-Learning")
 
-    sum_of_reward = Rein.fit()
+    sum_of_reward, loss = Rein.fit()
     axs[1].plot(sum_of_reward, label="reinforce")
+    axs[2].plot(loss, label="reinforce")
 
     V, sum_of_reward, loss = DQL.fit(True)
 
@@ -44,10 +45,10 @@ if __name__ == '__main__':
     axs[1].set_ylabel('accumulated rewards')
     axs[1].legend()
 
-    axs[2].plot(loss)
+    axs[2].plot(loss, label="Deep Q-Learning")
     axs[2].set_title('Agent loss')
     axs[2].set_xlabel('nb iteration')
     axs[2].set_ylabel('loss')
-
+    axs[2].legend()
 
     plt.show()
