@@ -84,16 +84,10 @@ class DummyNET(nn.Module):
                 continue
 
             S, A, R, S_prime, done = self.prepare_batch(batch)
-            print(S)
-            print(A)
-            print(S_prime)
             Q, V = self.predict_with_grad(S)
             Q_prime, V_prime = self.predict_no_grad(S_prime)
 
             Qy = R + gamma * (1 - done) * torch.max(Q_prime, 1)[0]
-            print(Qy)
-            print(Q)
-            print("yo")
             Vy = R + gamma * (1 - done) * V_prime.squeeze()
             Qx = Q.gather(1, A.unsqueeze(1)).squeeze()
             Vx = V.squeeze(1)

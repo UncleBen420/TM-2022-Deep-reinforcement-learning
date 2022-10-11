@@ -47,7 +47,12 @@ class QLearning:
                     # for visualisation
 
                     A = self.policy.chose_action(S)
-                    S_prime, R, is_terminal = self.environment.take_action(A)
+                    S_prime, R, is_terminal, should_have_mark = self.environment.take_action(A)
+
+                    # we can force the agent to learn to mark with shortcutting the action
+                    if should_have_mark:
+                        print("caca")
+                        A = 5  # mark
 
                     self.Q[S][A] += self.a * (R + self.gamma * np.max(self.Q[S_prime]) - self.Q[S][A])
                     # evaluation of V

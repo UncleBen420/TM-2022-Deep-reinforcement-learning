@@ -79,8 +79,8 @@ class DummyEnv:
         self.dummy_surface_model = None
         self.vision = np.zeros(7, dtype=int)
 
-        self.min_reward = -10000
-        self.max_reward = 10000
+        self.min_reward = 0
+        self.max_reward = 1
 
         self.replace_charlie = replace_charlie
         self.full_vision = full_vision
@@ -247,14 +247,17 @@ class DummyEnv:
     def get_current_state_deep(self):
 
         deep_vision = []
-        if self.full_vision:
-            deep_vision.append(self.dummy_boat_model)
-            deep_vision.append(self.dummy_surface_model)
-            self.deep_state[self.x][self.y][self.z - 1] = 1.
-            return np.append(deep_vision, self.deep_state.squeeze()) + np.random.rand(self.deep_state.size + len(deep_vision))
+        deep_vision.append(self.dummy_boat_model)
+        deep_vision.append(self.dummy_surface_model)
+        deep_vision.append(self.vision[0])
+        deep_vision.append(self.vision[1])
+        deep_vision.append(self.vision[2])
+        deep_vision.append(self.vision[3])
+        deep_vision.append(self.vision[4])
+        deep_vision.append(self.vision[5])
+        deep_vision.append(self.vision[6])
 
-        return np.append(deep_vision, (self.vision))
-
+        return np.array(deep_vision, dtype=float)
 
     def get_nb_state(self):
         return self.states.size
@@ -289,8 +292,8 @@ class DummyEnv:
         self.get_current_state_deep()
 
         reward = self.get_distance_reward()
-        if self.history[-1] in self.history[:-1]:
-            reward = - reward ** 2
+        #if self.history[-1] in self.history[:-1]:
+        #    reward = - reward ** 2
 
         is_terminal = self.nb_max_actions <= self.nb_actions_taken
 

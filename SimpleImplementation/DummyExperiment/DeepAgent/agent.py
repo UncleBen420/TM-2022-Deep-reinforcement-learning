@@ -53,9 +53,13 @@ class DeepQLearning:
                     # for visualisation
                     Q, V = self.model.predict_no_grad(S.to(self.model.device))
                     A = self.policy.chose_action(Q.to("cpu").numpy().astype(dtype=int))
-                    S_prime, R, is_terminal = self.environment.take_action(A)
+                    S_prime, R, is_terminal, should_have_mark = self.environment.take_action(A)
                     S_prime = torch.from_numpy(S_prime).float()
 
+                    # we can force the agent to learn to mark with shortcutting the action
+                    if should_have_mark:
+                        print("caca")
+                        A = 5  # mark
 
                     exp = (S, A, R, S_prime, is_terminal)
                     dataset[(S, S_prime)] = (S, A, R, S_prime, is_terminal)

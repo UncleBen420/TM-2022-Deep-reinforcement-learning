@@ -84,16 +84,16 @@ class Evaluator:
 
 if __name__ == '__main__':
 
-    de = EnvironmentDummySoft.DummyEnv(nb_max_actions=1000, replace_charlie=False, full_vision=True, deep=True)
+    de = EnvironmentDummySoft.DummyEnv(nb_max_actions=1000, replace_charlie=False, full_vision=False, deep=True)
 
     de.init_env()
     print(de.render_grid(de.grid))
 
     plt.imshow(de.render_board_img())
     plt.show()
-    ql = Reinforce(de, episodes=100, n_inputs=5122)
+    ql = Reinforce(de, episodes=100, n_inputs=9)
     print(de.get_nb_state())
-    #ql = DeepQLearning(de, DummyNET(n_inputs=de.get_nb_state()), E_Greedy_for_deep(0.1), episodes=100)
+    #ql = DeepQLearning(de, DummyNET(n_inputs=5122), E_Greedy_for_deep(0.1), episodes=100)
     #ql = QLearning(de, E_Greedy(0.1), episodes=1000)
     ql.fit()
 
