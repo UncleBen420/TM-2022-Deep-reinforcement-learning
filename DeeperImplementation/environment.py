@@ -7,6 +7,7 @@ import random
 from enum import Enum
 import cv2
 import imageio
+import matplotlib.pyplot as plt
 import numpy as np
 
 
@@ -15,9 +16,9 @@ class Piece(Enum):
     this enum class simplify the representation of the different
     pieces on the board.
     """
-    CHARLIE = {"code": 'B', 'label': 0}
-    WATER = {"code": '~', 'label': 2}
-    GROUND = {"code": '^', 'label': 3}
+    CHARLIE = 1.
+    WATER = 0.5
+    GROUND =  0.
 
 
 class Event(Enum):
@@ -48,7 +49,7 @@ class DummyEnv:
     He must not mark place where there is house.
     """
 
-    def __init__(self, size=64, model_resolution=2, max_zoom=4, nb_max_actions=100, replace_charlie=True, deep=False):
+    def __init__(self, size=64, model_resolution=2, max_zoom=4, nb_max_actions=100, replace_charlie=True):
         self.action_dones = None
         self.charlie_y = 0
         self.charlie_x = 0
@@ -75,32 +76,14 @@ class DummyEnv:
         self.vision = np.zeros(7, dtype=int)
 
         self.replace_charlie = replace_charlie
-        self.deep = deep  
-        self.states = np.arange(2 * 3 * self.max_zoom * self.max_move * self.max_move).reshape((2, 3, self.max_zoom, self.max_move, self.max_move))
-
-        def model_probalities(i):
-            """
-            This function is vectorize over all the pieces on the subgrid. It gives the probability of having
-            a boat or a house.
-            :param i: the Piece that is analysed.
-            :return: the changed value of i
-            """
-            if i is Piece.CHARLIE:
-                # simulate a neural network, the more the agent zoom the more the probability of
-                # seeing the boat increase
-                if not np.random.binomial(1, .95 / self.z):
-                    i = Piece.WATER
-            return i
-
-        self.get_probabilities = np.vectorize(model_probalities)
 
     def place_charlie(self):
         while True:
-            self.grid[self.charlie_x][self.charlie_y] = Piece.WATER
+            self.grid[self.charlie_x][self.charlie_y] = 0.5
             x = random.randint(0, self.size - 1)
             y = random.randint(1, self.size - 1)
-            if self.grid[x][y] is Piece.WATER and self.grid[x][y - 1] is Piece.GROUND:
-                self.grid[x][y] = Piece.CHARLIE
+            if self.grid[x][y] == 0.5 and self.grid[x][y - 1] == 0:
+                self.grid[x][y] = 1.
                 self.charlie_x = x
                 self.charlie_y = y
                 break
@@ -131,36 +114,31 @@ class DummyEnv:
             self.place_charlie()
 
         self.compute_sub_grid()
-        self.fit_dummy_model()
-
-        if self.deep:
-            S = self.get_current_state_deep()
-        else:
-            S = self.get_current_state()
+        S = self.get_current_state_deep()
 
         return S
 
     def init_env(self):
 
         def dilate():
-            temp = np.full((self.size, self.size), Piece.GROUND, dtype=Piece)
+            temp = np.zeros((self.size, self.size), dtype=float)
             for i in range(self.size):
                 for j in range(self.size):
                     temp[i][j] = self.grid[i][j]
                     current = 0
-                    current += 1 if i < self.size - 1 and self.grid[i + 1][j] == Piece.WATER else 0
-                    current += 1 if j < self.size - 1 and self.grid[i][j + 1] == Piece.WATER else 0
-                    current += 1 if i > 0 and self.grid[i - 1][j] == Piece.WATER else 0
-                    current += 1 if j > 0 and self.grid[i][j - 1] == Piece.WATER else 0
+                    current += 1 if i < self.size - 1 and self.grid[i + 1][j] == 0.5 else 0
+                    current += 1 if j < self.size - 1 and self.grid[i][j + 1] == 0.5 else 0
+                    current += 1 if i > 0 and self.grid[i - 1][j] == 0.5 else 0
+                    current += 1 if j > 0 and self.grid[i][j - 1] == 0.5 else 0
                     if current:
-                        temp[i][j] = Piece.WATER
+                        temp[i][j] = 0.5
             self.grid = temp
 
-        self.grid = np.full((self.size * self.size), Piece.GROUND, dtype=Piece)
+        self.grid = np.zeros((self.size * self.size), dtype=float)
         self.reward_grid = np.zeros((self.size, self.size))
 
         for i in range(5):
-            self.grid[i] = Piece.WATER
+            self.grid[i] = 0.5
 
         np.random.shuffle(self.grid)
 
@@ -178,16 +156,6 @@ class DummyEnv:
         pad = self.model_resolution ** self.z
         return math.sqrt((self.x * pad - self.charlie_x) ** 2 + (self.y * pad - self.charlie_y) ** 2 + (self.z - 1) ** 2)
 
-    def fit_dummy_model(self):
-        proba = self.get_probabilities(self.sub_grid)
-        self.dummy_boat_model = 1 if np.count_nonzero(proba == Piece.CHARLIE) else 0
-        if np.count_nonzero(proba == Piece.GROUND) and np.count_nonzero(proba == Piece.WATER):
-            self.dummy_surface_model = 2
-        elif np.count_nonzero(proba == Piece.WATER):
-            self.dummy_surface_model = 1
-        else:
-            self.dummy_surface_model = 0
-
     def get_current_state(self):
         return self.states[self.dummy_boat_model][self.dummy_surface_model][self.z - 1][self.x][self.y]
 
@@ -201,15 +169,14 @@ class DummyEnv:
         return i.value['label']
 
     def get_current_state_deep(self):
+        img = np.zeros((self.sub_grid.shape[0], self.sub_grid.shape[1], 3), dtype=float)
+        img += self.sub_grid[:,:,None]
+        img = cv2.resize(img, (10, 10), interpolation=cv2.INTER_NEAREST)
 
-        deep_vision = []
-        deep_vision.append(self.dummy_boat_model)
-        deep_vision.append(self.dummy_surface_model)
-        deep_vision.append(self.x)
-        deep_vision.append(self.y)
-        deep_vision.append(self.z)
+        deep_vision = img.squeeze()
+        deep_vision = np.append(deep_vision, [self.x, self.y, self.z])
 
-        return np.array(deep_vision, dtype=float)
+        return deep_vision
 
     def get_nb_state(self):
         return self.states.size
@@ -217,17 +184,11 @@ class DummyEnv:
     def take_action(self, action):
         action = Action(action)
 
-        self.history.append((self.x, self.y, self.z))
         self.action_dones.append(action)
+        self.history.append((self.x, self.y, self.z))
 
         # before the move we must check if the agent should mark
         should_have_mark = self.z <= 1 and np.count_nonzero(self.sub_grid == Piece.CHARLIE)
-
-        if not action == Action.MARK and should_have_mark:
-            self.marked_correctly = True
-            action = Action.MARK
-
-        self.compute_sub_grid()
 
         if action == Action.LEFT:
             self.x -= 0 if self.x <= 0 else 1
@@ -245,10 +206,14 @@ class DummyEnv:
                 self.y = int(self.y / self.model_resolution)
                 self.z += 1
 
-        self.fit_dummy_model()
+        self.compute_sub_grid()
         self.nb_actions_taken += 1
-
         self.get_current_state_deep()
+
+        if not action == Action.MARK and should_have_mark:
+            action = Action.MARK
+        elif action == Action.MARK and should_have_mark:
+            self.marked_correctly = True
 
         reward = - self.get_distance_reward()
         if self.history[-1] in self.history[:-1]:
@@ -264,31 +229,7 @@ class DummyEnv:
             else:
                 reward = -10000
 
-        if self.deep:
-            S = self.get_current_state_deep()
-        else:
-            S = self.get_current_state()
-
-        return S, reward, is_terminal, should_have_mark
-
-    def render_grid(self, grid):
-        """
-        this method allow to get a string representation of the board.
-        for command line usage.
-        :return: the string representation of the board
-        """
-        visual = ""
-        for i in range(grid.shape[0]):
-            visual += '_'
-        visual += '\n'
-        for i in range(grid.shape[0]):
-            for j in range(grid.shape[1]):
-                visual += grid[i, j].value["code"]
-
-            visual += '\n'
-        for i in range(grid.shape[0]):
-            visual += '_'
-        return visual
+        return self.get_current_state_deep(), reward, is_terminal, should_have_mark
 
     def render_board_img(self):
         """
@@ -304,13 +245,13 @@ class DummyEnv:
 
                 render = np.ones((10, 10, 3), dtype=np.uint8)
 
-                if self.grid[i][j] == Piece.CHARLIE:
+                if Piece(self.grid[i][j]) == Piece.CHARLIE:
                     icon = PieceRender.CHARLIE.value
                     color = [1, 0, 0]
-                elif self.grid[i][j] == Piece.WATER:
+                elif Piece(self.grid[i][j]) == Piece.WATER:
                     icon = PieceRender.WATER.value
                     color = [0, 0, 1]
-                elif self.grid[i][j] == Piece.GROUND:
+                elif Piece(self.grid[i][j]) == Piece.GROUND:
                     icon = PieceRender.GROUND.value
                     color = [1, 1, 1]
 

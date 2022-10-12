@@ -54,7 +54,7 @@ class Evaluator:
 
 if __name__ == '__main__':
 
-    de = environment.DummyEnv(nb_max_actions=1000, replace_charlie=False, deep=True)
+    de = environment.DummyEnv(nb_max_actions=1000, replace_charlie=False)
 
     de.init_env()
     plt.imshow(de.render_board_img())
@@ -62,7 +62,7 @@ if __name__ == '__main__':
 
     evaluator = Evaluator()
 
-    rein = Reinforce(de, episodes=1000, n_inputs=5)
+    rein = Reinforce(de, episodes=300)
     evaluator.evaluate(rein, "Reinforce")
 
     de.get_gif_trajectory("haha.gif")

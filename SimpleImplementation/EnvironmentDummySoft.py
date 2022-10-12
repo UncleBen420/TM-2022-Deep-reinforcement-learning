@@ -254,12 +254,6 @@ class DummyEnv:
         # before the move we must check if the agent should mark
         should_have_mark = self.z <= 1 and np.count_nonzero(self.sub_grid == Piece.CHARLIE)
 
-        if not action == Action.MARK and should_have_mark:
-            self.marked_correctly = True
-            action = Action.MARK
-
-        self.compute_sub_grid()
-
         if action == Action.LEFT:
             self.x -= 1 if self.vision[0] != Event.BLOCKED.value else 0
         elif action == Action.UP:
@@ -275,6 +269,13 @@ class DummyEnv:
                 self.x = int(self.x / self.model_resolution)
                 self.y = int(self.y / self.model_resolution)
                 self.z += 1
+
+        self.compute_sub_grid()
+
+        if not action == Action.MARK and should_have_mark:
+            action = Action.MARK
+        elif action == Action.MARK and should_have_mark:
+            self.marked_correctly = True
 
         self.get_vision()
         self.fit_dummy_model()

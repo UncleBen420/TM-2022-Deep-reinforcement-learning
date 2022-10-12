@@ -11,10 +11,19 @@ from environment import Action
 
 class Reinforce:
 
-    def __init__(self, environment, n_inputs, n_actions=7, n_hidden_nodes=128, learning_rate=0.001,
-                 episodes=100, gamma=0.01, dataset_max_size=4, entropy_coef=0.01):
-        self.model = torch.nn.Sequential(
-            torch.nn.Linear(n_inputs, n_hidden_nodes),
+    def __init__(self, environment, n_actions=7, n_hidden_nodes=128, learning_rate=0.001,
+                 episodes=100, gamma=0.01, dataset_max_size=4, entropy_coef=0.01, img_res=10):
+
+        self.vision_backbone = torch.nn.Sequential(
+            torch.nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3),
+            torch.nn.ReLU(),
+            torch.nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3),
+            torch.nn.ReLU(),
+            torch.nn.Flatten(),
+        )
+
+        self.head = torch.nn.Sequential(
+            torch.nn.Linear(2307, n_hidden_nodes),
             torch.nn.ReLU(),
             torch.nn.Linear(n_hidden_nodes, n_hidden_nodes),
             torch.nn.ReLU(),
@@ -23,7 +32,10 @@ class Reinforce:
         )
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.action_space = np.arange(n_actions)
-        self.model.to(self.device)
+
+        self.vision_backbone.to(self.device)
+        self.head.to(self.device)
+
         self.gamma = gamma
         self.environment = environment
         self.episodes = episodes
@@ -31,11 +43,22 @@ class Reinforce:
         self.entropy_coef = entropy_coef
         self.min_r = 0
         self.max_r = 1
+        self.img_res = img_res
+        self.split_index = (self.img_res * self.img_res * 3, 3)
 
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
+        self.optimizer_h = torch.optim.Adam(self.head.parameters(), lr=learning_rate)
+        self.optimizer_vb = torch.optim.Adam(self.vision_backbone.parameters(), lr=learning_rate)
+
+    def prepare_data(self, state):
+        img, pos = torch.split(state, self.split_index, dim=1)
+        img = torch.reshape(img, (-1 , self.img_res, self.img_res, 3))
+        return img.permute(0, 3, 1, 2), pos
 
     def predict(self, state):
-        action_probs = self.model(state)
+        img, pos = self.prepare_data(state)
+        x = self.vision_backbone(img)
+        x = torch.cat((x, pos), 1)
+        action_probs = self.head(x)
         return action_probs
 
     def follow_policy(self, action_probs):
@@ -72,7 +95,7 @@ class Reinforce:
                     S = torch.from_numpy(S).float()
 
                     with torch.no_grad():
-                        action_probs = self.predict(S).detach().numpy()
+                        action_probs = self.predict(S.unsqueeze(0)).detach().numpy()[0]
                     A = np.random.choice(self.action_space, p=action_probs)
                     S_prime, R, is_terminal, should_have_mark = self.environment.take_action(A)
 
@@ -120,7 +143,9 @@ class Reinforce:
                     S, A, G = batch
 
                     # Calculate loss
-                    self.optimizer.zero_grad()
+                    self.optimizer_h.zero_grad()
+                    self.optimizer_vb.zero_grad()
+
                     logprob = torch.log(self.predict(S))
                     selected_logprobs = G * torch.gather(logprob, 1, A.unsqueeze(1)).squeeze()
                     policy_loss = - selected_logprobs.mean()
@@ -133,7 +158,8 @@ class Reinforce:
                     # Calculate gradients
                     loss.backward()
                     # Apply gradients
-                    self.optimizer.step()
+                    self.optimizer_h.step()
+                    self.optimizer_vb.step()
                     sum_loss += loss.item()
                     counter += 1
 
