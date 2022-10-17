@@ -62,12 +62,12 @@ if __name__ == '__main__':
 
     evaluator = Evaluator()
 
-    rein = Reinforce(de, episodes=1000, n_inputs=5)
+    rein = Reinforce(de, episodes=500, n_inputs=5)
     evaluator.evaluate(rein, "Reinforce")
     de.deep = False
-    evaluator.evaluate(QLearning(de, E_Greedy(0.05), episodes=10), "Q-Learning")
-    evaluator.evaluate(MonteCarloOnPolicy(de, E_Greedy(0.05), episodes=10), "Monte Carlo")
-    evaluator.evaluate(NStepSarsa(de, E_Greedy(0.05), episodes=10), "N-Step Sarsa")
+    evaluator.evaluate(QLearning(de, E_Greedy(0.05), episodes=500), "Q-Learning")
+    evaluator.evaluate(MonteCarloOnPolicy(de, E_Greedy(0.05), episodes=500), "Monte Carlo")
+    evaluator.evaluate(NStepSarsa(de, E_Greedy(0.05), episodes=500), "N-Step Sarsa")
     evaluator.show()
 
     de.get_gif_trajectory("haha.gif")

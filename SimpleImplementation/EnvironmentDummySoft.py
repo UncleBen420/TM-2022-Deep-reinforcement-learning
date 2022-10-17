@@ -263,7 +263,11 @@ class DummyEnv:
         elif action == Action.DOWN:
             self.y += 1 if self.vision[3] != Event.BLOCKED.value else 0
         elif action == Action.ZOOM:
-            self.z -= 1 if self.vision[4] != Event.BLOCKED.value else 0
+            if self.vision[4] != Event.BLOCKED.value:
+                self.z -= 1
+                self.x = self.x << 1
+                self.y = self.y << 1
+
         elif action == Action.DEZOOM:
             if self.vision[5] != Event.BLOCKED.value:
                 self.x = int(self.x / self.model_resolution)

@@ -12,7 +12,7 @@ from EnvironmentDummySoft import Action
 class Reinforce:
 
     def __init__(self, environment, n_inputs, n_actions=7, n_hidden_nodes=128, learning_rate=0.001,
-                 episodes=100, gamma=0.01, dataset_max_size=4, entropy_coef=0.01):
+                 episodes=100, gamma=0.01, dataset_max_size=4, entropy_coef=0.1):
         self.model = torch.nn.Sequential(
             torch.nn.Linear(n_inputs, n_hidden_nodes),
             torch.nn.ReLU(),
