@@ -53,7 +53,7 @@ class DummyEnv:
     He must not mark place where there is house.
     """
 
-    def __init__(self, nb_max_actions=100):
+    def __init__(self, nb_max_actions=100, replace_charlie=False):
         self.gpu_full_img = None
         self.action_dones = None
         self.charlie_y = 0
@@ -76,7 +76,27 @@ class DummyEnv:
         self.dummy_surface_model = None
         self.vision = np.zeros(7, dtype=int)
         self.guided = True
-        self.cv_cuda =  check_cuda()
+        self.cv_cuda = check_cuda()
+
+        self.replace_charlie = replace_charlie
+
+    def place_charlie(self):
+
+        while True:
+            x = random.randint(0, self.W - 1)
+            y = random.randint(0, self.H - 1)
+            if self.mask[x][y][0] == 0:
+                self.charlie_x = x
+                self.charlie_y = y
+                self.full_img = self.base_img.copy()
+                self.full_img[self.charlie_x:self.charlie_x + self.charlie.shape[0],
+                self.charlie_y:self.charlie_y + self.charlie.shape[1]] = self.charlie
+                break
+
+        plt.imshow(self.full_img)
+        plt.show()
+        print(self.charlie_x)
+        print(self.charlie_y)
 
     def reload_env(self):
         """
@@ -103,15 +123,18 @@ class DummyEnv:
 
         return S
 
-    def init_env(self, img, label):
-        self.full_img = cv2.cvtColor(cv2.imread(img), cv2.COLOR_BGR2RGB)
+    def load_env(self, img, mask, charlie):
+        self.base_img = cv2.cvtColor(cv2.imread(img), cv2.COLOR_BGR2RGB)
+        self.H, self.W, self.channels = self.base_img.shape
+        self.ratio = MODEL_RES / self.H
+        self.charlie = cv2.cvtColor(cv2.imread(charlie), cv2.COLOR_BGR2RGB)
+        self.mask = cv2.imread(mask)
+
+    def init_env(self):
+        self.place_charlie()
         if self.cv_cuda:
             self.gpu_full_img = cv2.cuda_GpuMat()
             self.gpu_full_img.upload(self.full_img)
-
-        self.H, self.W, self.channels = self.full_img.shape
-        self.ratio = MODEL_RES / self.H
-        print(self.ratio)
 
         min_dim = np.min([self.W, self.H])
         self.hist_img = cv2.resize(self.full_img, (MODEL_RES, MODEL_RES), interpolation=cv2.INTER_NEAREST)
@@ -119,18 +142,6 @@ class DummyEnv:
         self.max_zoom = int(math.log(min_dim, 2))
         self.min_zoom = self.max_zoom - 5
         #self.heat_map = np.zeros((self.W, self.H))
-
-        self.bb_map = np.zeros((self.H, self.W), dtype=np.uint8)
-        with open(label, "r") as file:
-            lines = file.read()
-        for i, line in enumerate(lines.split('\n')):
-            if len(line.split(' ')) > 1:
-                y, x = line.split(' ')
-                self.charlie_x = int(float(x))
-                self.charlie_y = int(float(y))
-
-        print(self.charlie_x)
-        print(self.charlie_y)
 
     def compute_sub_grid(self):
         window = self.zoom_padding << (self.z - 1)
@@ -240,6 +251,8 @@ class DummyEnv:
             if should_have_mark:
                 is_terminal = True
                 reward += 1000
+                if self.replace_charlie:
+                    self.init_env()
             else:
                 reward -= 1000
 

@@ -59,9 +59,9 @@ class Evaluator:
 
 if __name__ == '__main__':
 
-    de = environment.DummyEnv(nb_max_actions=100)
-
-    de.init_env("/home/remy/Documents/Dataset_Waldo_1/images/1.png", "/home/remy/Documents/Dataset_Waldo_1/labels/1.txt")
+    de = environment.DummyEnv(nb_max_actions=100, replace_charlie=True)
+    de.load_env("/home/remy/Documents/P9467.png", "/home/remy/Documents/mask1.png", "/home/remy/Documents/waldo.png")
+    de.init_env()
 
     evaluator = Evaluator()
 
