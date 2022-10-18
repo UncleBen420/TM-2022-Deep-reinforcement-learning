@@ -165,8 +165,6 @@ class DummyEnv:
                 self.y * window <= self.charlie_y <= self.y * window + window)
 
     def get_current_state_deep(self):
-        plt.imshow(self.sub_vision)
-        plt.show()
         return np.append(self.sub_vision.squeeze(), self.hist.squeeze()) / 255
 
 
@@ -175,9 +173,6 @@ class DummyEnv:
 
         # before the move we must check if the agent should mark
         should_have_mark = self.sub_grid_contain_charlie() and self.z < self.max_zoom - 2
-        if should_have_mark:
-            plt.imshow(self.sub_vision)
-            plt.show()
 
         self.history[self.nb_actions_taken] = (self.x, self.y, self.z, action.value)
 
@@ -262,69 +257,21 @@ class DummyEnv:
         :param name: the name of the gif file
         """
         frames = []
-        mm = self.render_board_img()
         for i in range(self.nb_actions_taken):
             x, y, z, a = self.history[i]
+            mm = self.hist_img.copy()
 
             if a == Action.MARK:
-                color = [0, 0, 1]
+                color = [255, 0, 0]
             else:
-                color = [0, 1, 0]
+                color = [0, 255, 0]
 
-            window = (self.zoom_padding ** z) * 10
-            mm[window * x:window + window * x
-              ,window * y:window + window * y] = mm[window * x:window + window * x
-                                                         ,window * y:window + window * y] >> color
+            window = (self.zoom_padding ** z)
+            mm[int(window * x * self.ratio):
+                      int((window + window * x) * self.ratio),
+                      int(window * y * self.ratio):
+                      int((window + window * y) * self.ratio)] = color
 
-            frames.append(mm.copy())
+            frames.append(mm)
 
         imageio.mimsave(name, frames, duration=0.5)
-
-
-class PieceRender(Enum):
-    """
-    this enum class represent the visualisation of the board.
-    """
-    CHARLIE = [[0, 0, 0, 0, 1, 1, 0, 0, 0, 0],
-               [0, 0, 0, 0, 1, 1, 0, 0, 0, 0],
-               [0, 0, 0, 1, 0, 0, 0, 1, 0, 0],
-               [0, 0, 1, 1, 1, 1, 1, 1, 1, 0],
-               [0, 0, 1, 0, 0, 0, 0, 0, 1, 0],
-               [0, 0, 1, 0, 1, 0, 1, 0, 1, 0],
-               [0, 0, 1, 0, 0, 0, 0, 0, 1, 0],
-               [0, 0, 0, 1, 0, 0, 0, 1, 0, 0],
-               [0, 0, 0, 0, 1, 1, 1, 0, 0, 0],
-               [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]
-
-    HOUSE = [[0, 0, 0, 0, 1, 0, 0, 0, 0, 0],
-             [0, 0, 0, 0, 1, 1, 0, 0, 0, 0],
-             [0, 0, 0, 1, 1, 0, 1, 0, 0, 0],
-             [0, 0, 1, 0, 0, 0, 0, 1, 0, 0],
-             [0, 1, 1, 0, 1, 1, 0, 1, 1, 0],
-             [0, 0, 1, 0, 0, 0, 0, 1, 0, 0],
-             [0, 0, 1, 0, 1, 1, 0, 1, 0, 0],
-             [0, 0, 1, 0, 1, 1, 0, 1, 0, 0],
-             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]
-
-    WATER = [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-             [1, 0, 0, 0, 1, 0, 0, 0, 1, 0],
-             [0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
-             [0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
-             [0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
-             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-             [0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
-             [1, 0, 1, 0, 1, 0, 1, 0, 1, 0],
-             [1, 0, 1, 0, 1, 0, 1, 0, 1, 0],
-             [0, 0, 0, 1, 0, 0, 0, 1, 0, 0]]
-
-    GROUND = [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-              [1, 0, 1, 0, 1, 0, 1, 0, 1, 0],
-              [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-              [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-              [1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
-              [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-              [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-              [0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
-              [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-              [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]
