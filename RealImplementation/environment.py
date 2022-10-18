@@ -4,21 +4,21 @@ states of the environment are not linked to it's size (contrary to a grid world 
 """
 import math
 import random
+import re
 from enum import Enum
 import cv2
 import imageio
 import matplotlib.pyplot as plt
 import numpy as np
 
-
-class Piece(Enum):
+def check_cuda():
     """
-    this enum class simplify the representation of the different
-    pieces on the board.
+    check if opencv can detect cuda
+    :return: return True if opencv can detect cuda. False otherwise.
     """
-    CHARLIE = 1.
-    WATER = 0.5
-    GROUND =  0.
+    cv_info = [re.sub('\s+', ' ', ci.strip()) for ci in cv2.getBuildInformation().strip().split('\n')
+               if len(ci) > 0 and re.search(r'(nvidia*:?)|(cuda*:)|(cudnn*:)', ci.lower()) is not None]
+    return len(cv_info) > 0
 
 
 class Event(Enum):
@@ -76,6 +76,7 @@ class DummyEnv:
         self.dummy_surface_model = None
         self.vision = np.zeros(7, dtype=int)
         self.guided = True
+        self.cv = cv2.cuda if check_cuda() else cv2
 
     def reload_env(self):
         """
@@ -110,7 +111,7 @@ class DummyEnv:
         print(self.ratio)
 
         min_dim = np.min([self.W, self.H])
-        self.hist_img = cv2.resize(self.full_img, (MODEL_RES, MODEL_RES), interpolation=cv2.INTER_NEAREST)
+        self.hist_img = self.cv.resize(self.full_img, (MODEL_RES, MODEL_RES), interpolation=cv2.INTER_NEAREST)
 
         self.max_zoom = int(math.log(min_dim, 2))
         #self.heat_map = np.zeros((self.W, self.H))
@@ -130,7 +131,7 @@ class DummyEnv:
     def compute_sub_grid(self):
         window = self.zoom_padding << (self.z - 1)
         self.sub_vision = self.full_img[window * self.x:window + window * self.x, window * self.y:window + window * self.y]
-        self.sub_vision = cv2.resize(self.sub_vision, (MODEL_RES, MODEL_RES))
+        self.sub_vision = self.cv.resize(self.sub_vision, (MODEL_RES, MODEL_RES))
 
 
     def compute_hist(self):

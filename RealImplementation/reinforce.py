@@ -125,7 +125,7 @@ class Reinforce:
                     S = torch.from_numpy(S).float()
 
                     with torch.no_grad():
-                        action_probs = self.policy(S.unsqueeze(0)).detach().numpy()[0]
+                        action_probs = self.policy(S.unsqueeze(0).to(self.policy.device)).detach().cpu().numpy()[0]
                     A = self.policy.follow_policy(action_probs)
                     S_prime, R, is_terminal, A_tips = self.environment.take_action(A)
                     A = A_tips # the environment can give tips to the agent to help him learn
@@ -151,9 +151,9 @@ class Reinforce:
                         pw += 1
                     G_batch.append(Gt)
 
-                S_batch = torch.stack(S_batch)
-                A_batch = torch.LongTensor(A_batch)
-                G_batch = torch.FloatTensor(G_batch)
+                S_batch = torch.stack(S_batch).to(self.policy.device)
+                A_batch = torch.LongTensor(A_batch).to(self.policy.device)
+                G_batch = torch.FloatTensor(G_batch).to(self.policy.device)
                 self.min_r = min(torch.min(G_batch), self.min_r)
                 self.max_r = max(torch.max(G_batch), self.max_r)
                 G_batch = self.minmax_scaling(G_batch)
