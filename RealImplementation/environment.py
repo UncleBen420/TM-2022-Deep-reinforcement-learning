@@ -54,6 +54,7 @@ class DummyEnv:
     """
 
     def __init__(self, nb_max_actions=100):
+        self.gpu_full_img = None
         self.action_dones = None
         self.charlie_y = 0
         self.charlie_x = 0
@@ -76,7 +77,7 @@ class DummyEnv:
         self.dummy_surface_model = None
         self.vision = np.zeros(7, dtype=int)
         self.guided = True
-        self.cv = cv2.cuda if check_cuda() else cv2
+        self.cv_cuda =  check_cuda()
 
     def reload_env(self):
         """
@@ -105,13 +106,16 @@ class DummyEnv:
 
     def init_env(self, img, label):
         self.full_img = cv2.cvtColor(cv2.imread(img), cv2.COLOR_BGR2RGB)
+        if self.cv_cuda:
+            self.gpu_full_img = cv2.cuda_GpuMat()
+            self.gpu_full_img.upload(self.full_img)
 
         self.H, self.W, self.channels = self.full_img.shape
         self.ratio = MODEL_RES / self.H
         print(self.ratio)
 
         min_dim = np.min([self.W, self.H])
-        self.hist_img = self.cv.resize(self.full_img, (MODEL_RES, MODEL_RES), interpolation=cv2.INTER_NEAREST)
+        self.hist_img = cv2.resize(self.full_img, (MODEL_RES, MODEL_RES), interpolation=cv2.INTER_NEAREST)
 
         self.max_zoom = int(math.log(min_dim, 2))
         #self.heat_map = np.zeros((self.W, self.H))
@@ -130,8 +134,19 @@ class DummyEnv:
 
     def compute_sub_grid(self):
         window = self.zoom_padding << (self.z - 1)
-        self.sub_vision = self.full_img[window * self.x:window + window * self.x, window * self.y:window + window * self.y]
-        self.sub_vision = self.cv.resize(self.sub_vision, (MODEL_RES, MODEL_RES))
+
+
+        if self.cv_cuda:
+            minX = window * self.x
+            maxY = window + window * self.y
+            maxX = window + window * self.x
+            minY = window * self.y
+
+            self.gpu_sub_vision = cv2.cuda_GpuMat(self.gpu_full_img, (minY, minX, maxY, maxX))
+            self.sub_vision = cv2.cuda.resize(self.sub_vision, (MODEL_RES, MODEL_RES)).download()
+        else:
+            self.sub_vision = self.full_img[window * self.x:window + window * self.x, window * self.y:window + window * self.y]
+            self.sub_vision = cv2.resize(self.sub_vision, (MODEL_RES, MODEL_RES))
 
     def compute_hist(self):
         window = self.zoom_padding << (self.z - 1)
@@ -152,7 +167,7 @@ class DummyEnv:
                 self.y * window <= self.charlie_y <= self.y * window + window)
 
     def get_current_state_deep(self):
-        return np.append(self.sub_vision.squeeze(), self.hist.squeeze()) / 127.5 - 1
+        return np.append(self.sub_vision.squeeze(), self.hist.squeeze()) / 255
 
 
     def take_action(self, action):
