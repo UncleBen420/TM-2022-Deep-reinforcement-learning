@@ -151,9 +151,9 @@ class Reinforce:
                         pw += 1
                     G_batch.append(Gt)
 
-                S_batch = torch.stack(S_batch).to(self.policy.device)
-                A_batch = torch.LongTensor(A_batch).to(self.policy.device)
-                G_batch = torch.FloatTensor(G_batch).to(self.policy.device)
+                S_batch = torch.stack(S_batch)
+                A_batch = torch.LongTensor(A_batch)
+                G_batch = torch.FloatTensor(G_batch)
                 self.min_r = min(torch.min(G_batch), self.min_r)
                 self.max_r = max(torch.max(G_batch), self.max_r)
                 G_batch = self.minmax_scaling(G_batch)
@@ -176,6 +176,9 @@ class Reinforce:
 
                 for _, batch in combined_ds:
                     S, A, G = batch
+                    S = S.to(self.policy.device)
+                    A = A.to(self.policy.device)
+                    G = G.to(self.policy.device)
 
                     # Calculate loss
                     self.optimizer.zero_grad()
