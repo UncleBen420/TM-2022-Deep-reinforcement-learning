@@ -45,7 +45,7 @@ class Action(Enum):
     DEZOOM = 8
     MARK = 9
 
-MODEL_RES = 224
+MODEL_RES = 128
 
 class DummyEnv:
     """
@@ -132,7 +132,6 @@ class DummyEnv:
         window = self.zoom_padding << (self.z - 1)
         self.sub_vision = self.full_img[window * self.x:window + window * self.x, window * self.y:window + window * self.y]
         self.sub_vision = self.cv.resize(self.sub_vision, (MODEL_RES, MODEL_RES))
-
 
     def compute_hist(self):
         window = self.zoom_padding << (self.z - 1)
