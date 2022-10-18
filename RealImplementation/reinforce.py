@@ -78,14 +78,16 @@ class PolicyNet(nn.Module):
 class Reinforce:
 
     def __init__(self, environment, n_actions=10, learning_rate=0.001,
-                 episodes=100, guided_episodes=100, gamma=0.01, dataset_max_size=6, good_ds_max_size=50,
-                 entropy_coef=0.2, img_res=224):
+                 episodes=100, guided_episodes=100, gamma=0.01,
+                 dataset_max_size=6, good_ds_max_size=50,
+                 entropy_coef=0.2, img_res=224, batch_size=16):
 
         self.gamma = gamma
         self.environment = environment
         self.episodes = episodes
         self.dataset_max_size = dataset_max_size
         self.good_ds_max_size = good_ds_max_size
+        self.batch_size = batch_size
         self.entropy_coef = entropy_coef
         self.min_r = 0
         self.max_r = 1
@@ -175,30 +177,37 @@ class Reinforce:
                 random.shuffle(combined_ds)
 
                 for _, batch in combined_ds:
+
                     S, A, G = batch
-                    S = S.to(self.policy.device)
-                    A = A.to(self.policy.device)
-                    G = G.to(self.policy.device)
+                    S = S.split(self.batch_size)
+                    A = A.split(self.batch_size)
+                    G = G.split(self.batch_size)
 
-                    # Calculate loss
-                    self.optimizer.zero_grad()
+                    # create batch of size edible by the gpu
+                    for i in range(len(A)):
+                        S_ = S[i].to(self.policy.device)
+                        A_ = A[i].to(self.policy.device)
+                        G_ = G[i].to(self.policy.device)
 
-                    logprob = torch.log(self.policy(S))
-                    selected_logprobs = G * torch.gather(logprob, 1, A.unsqueeze(1)).squeeze()
-                    policy_loss = - selected_logprobs.mean()
+                        # Calculate loss
+                        self.optimizer.zero_grad()
 
-                    entropy = Categorical(probs=logprob).entropy()
-                    entropy_loss = - entropy.mean()
+                        logprob = torch.log(self.policy(S_))
+                        selected_logprobs = G_ * torch.gather(logprob, 1, A_.unsqueeze(1)).squeeze()
+                        policy_loss = - selected_logprobs.mean()
 
-                    loss = policy_loss + self.entropy_coef * entropy_loss
+                        entropy = Categorical(probs=logprob).entropy()
+                        entropy_loss = - entropy.mean()
 
-                    # Calculate gradients
-                    loss.backward()
-                    # Apply gradients
-                    self.optimizer.step()
+                        loss = policy_loss + self.entropy_coef * entropy_loss
 
-                    sum_loss += loss.item()
-                    counter += 1
+                        # Calculate gradients
+                        loss.backward()
+                        # Apply gradients
+                        self.optimizer.step()
+
+                        sum_loss += loss.item()
+                        counter += 1
 
                 losses.append(sum_loss / counter)
 
