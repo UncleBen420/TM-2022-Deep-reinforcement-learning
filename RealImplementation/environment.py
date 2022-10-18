@@ -77,7 +77,7 @@ class DummyEnv:
         self.vision = np.zeros(7, dtype=int)
         self.guided = True
         self.cv_cuda = check_cuda()
-
+        self.heat_map = np.zeros((MODEL_RES, MODEL_RES))
         self.replace_charlie = replace_charlie
 
     def place_charlie(self):
@@ -92,11 +92,6 @@ class DummyEnv:
                 self.full_img[self.charlie_x:self.charlie_x + self.charlie.shape[0],
                 self.charlie_y:self.charlie_y + self.charlie.shape[1]] = self.charlie
                 break
-
-        plt.imshow(self.full_img)
-        plt.show()
-        print(self.charlie_x)
-        print(self.charlie_y)
 
     def reload_env(self):
         """
@@ -141,7 +136,6 @@ class DummyEnv:
 
         self.max_zoom = int(math.log(min_dim, 2))
         self.min_zoom = self.max_zoom - 5
-        #self.heat_map = np.zeros((self.W, self.H))
 
     def compute_sub_grid(self):
         window = self.zoom_padding << (self.z - 1)
@@ -164,6 +158,10 @@ class DummyEnv:
                   int((window + window * self.x) * self.ratio),
                   int(window * self.y * self.ratio):
                   int((window + window * self.y) * self.ratio)] = [255., 0., 0.]
+        self.heat_map[int(window * self.x * self.ratio):
+                  int((window + window * self.x) * self.ratio),
+                  int(window * self.y * self.ratio):
+                  int((window + window * self.y) * self.ratio)] += 1
 
     def get_distance_reward(self):
         dist = math.sqrt(((self.x << (self.max_zoom - self.z)) - self.charlie_x) ** 2 +

@@ -65,9 +65,9 @@ if __name__ == '__main__':
 
     evaluator = Evaluator()
 
-    rein = Reinforce(de, episodes=300, guided_episodes=150)
+    rein = Reinforce(de, episodes=1, guided_episodes=150)
     evaluator.evaluate(rein, "Reinforce")
     evaluator.show()
-    #plt.imshow(de.heat_map)
-    #plt.show()
+    plt.imshow(de.heat_map)
+    plt.show()
     de.get_gif_trajectory("haha.gif")
