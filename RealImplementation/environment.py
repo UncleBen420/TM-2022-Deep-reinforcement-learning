@@ -65,7 +65,6 @@ class DummyEnv:
         self.nb_actions_taken = 0
         self.nb_max_actions = nb_max_actions
         self.nb_action = 7
-
         self.zoom_padding = 2
         self.z = 1
         self.x = 0
@@ -118,6 +117,7 @@ class DummyEnv:
         self.hist_img = cv2.resize(self.full_img, (MODEL_RES, MODEL_RES), interpolation=cv2.INTER_NEAREST)
 
         self.max_zoom = int(math.log(min_dim, 2))
+        self.min_zoom = self.max_zoom - 5
         #self.heat_map = np.zeros((self.W, self.H))
 
         self.bb_map = np.zeros((self.H, self.W), dtype=np.uint8)
@@ -134,8 +134,6 @@ class DummyEnv:
 
     def compute_sub_grid(self):
         window = self.zoom_padding << (self.z - 1)
-
-
         if self.cv_cuda:
             minX = window * self.x
             maxY = window + window * self.y
@@ -167,6 +165,8 @@ class DummyEnv:
                 self.y * window <= self.charlie_y <= self.y * window + window)
 
     def get_current_state_deep(self):
+        plt.imshow(self.sub_vision)
+        plt.show()
         return np.append(self.sub_vision.squeeze(), self.hist.squeeze()) / 255
 
 
@@ -191,13 +191,13 @@ class DummyEnv:
         elif action == Action.DOWN:
             self.y += 0 if (self.y + 1) >= self.H / (self.zoom_padding << (self.z - 1)) else 1
         elif action == Action.ZOOM1:
-            if not self.z - 1 <= 0:
+            if not self.z - 1 < self.min_zoom:
                 self.z -= 1
                 self.x = self.x << 1
                 self.y = self.y << 1
 
         elif action == Action.ZOOM2:
-            if not self.z - 1 <= 0:
+            if not self.z - 1 < self.min_zoom:
                 self.z -= 1
                 self.x = self.x << 1
                 self.y = self.y << 1
@@ -205,7 +205,7 @@ class DummyEnv:
                 self.x += 1
 
         elif action == Action.ZOOM3:
-            if not self.z - 1 <= 0:
+            if not self.z - 1 < self.min_zoom:
                 self.z -= 1
                 self.x = self.x << 1
                 self.y = self.y << 1
@@ -213,7 +213,7 @@ class DummyEnv:
                 self.y += 1
 
         elif action == Action.ZOOM4:
-            if not self.z - 1 <= 0:
+            if not self.z - 1 < self.min_zoom:
                 self.z -= 1
                 self.x = self.x << 1
                 self.y = self.y << 1
