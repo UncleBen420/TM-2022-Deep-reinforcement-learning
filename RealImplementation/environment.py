@@ -183,7 +183,7 @@ class DummyEnv:
         action = Action(action)
 
         # before the move we must check if the agent should mark
-        should_have_mark = self.sub_grid_contain_charlie() and self.z < self.max_zoom - 3
+        should_have_mark = self.sub_grid_contain_charlie() and self.z < self.max_zoom - 2
 
         self.history[self.nb_actions_taken] = (self.x, self.y, self.z, action.value)
 
@@ -251,7 +251,7 @@ class DummyEnv:
             self.nb_mark += 1
             if should_have_mark:
                 is_terminal = True
-                reward = 10
+                reward = 100
                 if self.replace_charlie:
                     self.init_env()
             else:
