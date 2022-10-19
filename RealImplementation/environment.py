@@ -45,7 +45,7 @@ class Action(Enum):
     DEZOOM = 8
     MARK = 9
 
-MODEL_RES = 128
+MODEL_RES = 32
 
 class DummyEnv:
     """
@@ -92,6 +92,7 @@ class DummyEnv:
                 self.full_img[self.charlie_x:self.charlie_x + self.charlie.shape[0],
                 self.charlie_y:self.charlie_y + self.charlie.shape[1]] = self.charlie
                 break
+                
 
     def reload_env(self):
         """
@@ -135,7 +136,7 @@ class DummyEnv:
         self.hist_img = cv2.resize(self.full_img, (MODEL_RES, MODEL_RES), interpolation=cv2.INTER_NEAREST)
 
         self.max_zoom = int(math.log(min_dim, 2))
-        self.min_zoom = self.max_zoom - 5
+        self.min_zoom = self.max_zoom - 4
 
     def compute_sub_grid(self):
         window = self.zoom_padding << (self.z - 1)
@@ -164,14 +165,14 @@ class DummyEnv:
                   int((window + window * self.y) * self.ratio)] += 1
 
     def get_distance_reward(self):
-        dist = math.sqrt(((self.x << (self.max_zoom - self.z)) - self.charlie_x) ** 2 +
-                         ((self.y << (self.max_zoom - self.z)) - self.charlie_y) ** 2)
+        dist = math.sqrt(((self.x << (self.max_zoom - self.z)) - (self.charlie_x >> self.min_zoom - 1) ) ** 2 +
+                         ((self.y << (self.max_zoom - self.z)) - (self.charlie_y >> self.min_zoom - 1)) ** 2)
         return dist
 
     def sub_grid_contain_charlie(self):
         window = self.zoom_padding << (self.z - 1)
-        return (self.x * window <= self.charlie_x <= self.x * window + window and
-                self.y * window <= self.charlie_y <= self.y * window + window)
+        return (self.x * window <= self.charlie_x < self.x * window + window and
+                self.y * window <= self.charlie_y < self.y * window + window)
 
     def get_current_state_deep(self):
         return np.append(self.sub_vision.squeeze(), self.hist.squeeze()) / 255
@@ -181,7 +182,7 @@ class DummyEnv:
         action = Action(action)
 
         # before the move we must check if the agent should mark
-        should_have_mark = self.sub_grid_contain_charlie() and self.z < self.max_zoom - 2
+        should_have_mark = self.sub_grid_contain_charlie() and self.z < self.max_zoom - 3
 
         self.history[self.nb_actions_taken] = (self.x, self.y, self.z, action.value)
 
@@ -240,7 +241,8 @@ class DummyEnv:
         elif action == Action.MARK and should_have_mark:
             self.marked_correctly = True
 
-        reward = - self.get_distance_reward()
+        #reward = - self.get_distance_reward()
+        reward = -1
 
         is_terminal = self.nb_max_actions <= self.nb_actions_taken
 
@@ -248,14 +250,12 @@ class DummyEnv:
             self.nb_mark += 1
             if should_have_mark:
                 is_terminal = True
-                reward += 1000
+                reward = 10
                 if self.replace_charlie:
                     self.init_env()
             else:
-                reward -= 1000
+                reward -= 10
 
-        elif old_pos == (self.x, self.y, self.z):
-            reward -= 2
 
         return self.get_current_state_deep(), reward, is_terminal, action.value
 

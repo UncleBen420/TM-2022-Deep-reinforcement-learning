@@ -59,13 +59,13 @@ class Evaluator:
 
 if __name__ == '__main__':
 
-    de = environment.DummyEnv(nb_max_actions=100, replace_charlie=True)
+    de = environment.DummyEnv(nb_max_actions=1000, replace_charlie=True)
     de.load_env("/home/remy/Documents/P9467.png", "/home/remy/Documents/mask1.png", "/home/remy/Documents/waldo.png")
     de.init_env()
 
     evaluator = Evaluator()
 
-    rein = Reinforce(de, episodes=1, guided_episodes=150)
+    rein = Reinforce(de, episodes=100, guided_episodes=50)
     evaluator.evaluate(rein, "Reinforce")
     evaluator.show()
     plt.imshow(de.heat_map)

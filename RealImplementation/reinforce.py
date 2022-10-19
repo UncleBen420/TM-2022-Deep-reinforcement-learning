@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 
 class PolicyNet(nn.Module):
-    def __init__(self, n_actions, img_res, n_hidden_nodes=64, fine_tune=False):
+    def __init__(self, n_actions, img_res, n_hidden_nodes=1024, fine_tune=False):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -24,35 +24,37 @@ class PolicyNet(nn.Module):
         self.split_index = (self.img_res * self.img_res * 3, self.img_res * self.img_res * 3)
 
         self.head = torch.nn.Sequential(
-            torch.nn.Linear(54784, n_hidden_nodes),
+            torch.nn.Linear(1312, n_hidden_nodes),
             torch.nn.ReLU(),
+            torch.nn.Dropout(0.2),
             torch.nn.Linear(n_hidden_nodes, (n_hidden_nodes >> 1)),
             torch.nn.ReLU(),
+            torch.nn.Dropout(0.2),
             torch.nn.Linear((n_hidden_nodes >> 1), n_actions),
             torch.nn.Softmax(dim=-1)
         )
 
         # Change the classification head.
         self.history_backbone = torch.nn.Sequential(
-            torch.nn.Conv2d(in_channels=3, out_channels=8, kernel_size=7),
-            torch.nn.ReLU(),
-            torch.nn.Dropout(0.2),
-            torch.nn.Conv2d(in_channels=8, out_channels=4, kernel_size=11),
+            torch.nn.Conv2d(in_channels=3, out_channels=1, kernel_size=(1, 1)),
             torch.nn.ReLU(),
             torch.nn.Flatten(),
+            torch.nn.Linear(1024, 512),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(0.2)
         )
 
         self.vision_backbone = torch.nn.Sequential(
             torch.nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3),
             torch.nn.ReLU(),
             torch.nn.Dropout(0.2),
-            torch.nn.Conv2d(in_channels=32, out_channels=16, kernel_size=5),
+            torch.nn.Conv2d(in_channels=32, out_channels=16, kernel_size=3),
             torch.nn.ReLU(),
-            torch.nn.MaxPool2d(3),
-            torch.nn.Conv2d(in_channels=16, out_channels=16, kernel_size=7),
+            torch.nn.MaxPool2d(2),
+            torch.nn.Conv2d(in_channels=16, out_channels=16, kernel_size=3),
             torch.nn.ReLU(),
             torch.nn.Dropout(0.2),
-            torch.nn.Conv2d(in_channels=16, out_channels=8, kernel_size=11),
+            torch.nn.Conv2d(in_channels=16, out_channels=8, kernel_size=3),
             torch.nn.ReLU(),
             torch.nn.Flatten(),
         )
@@ -82,9 +84,9 @@ class PolicyNet(nn.Module):
 class Reinforce:
 
     def __init__(self, environment, n_actions=10, learning_rate=0.001,
-                 episodes=100, guided_episodes=100, gamma=0.01,
-                 dataset_max_size=3, good_ds_max_size=15,
-                 entropy_coef=0.2, img_res=128, batch_size=32):
+                 episodes=100, guided_episodes=100, gamma=0.1,
+                 dataset_max_size=6, good_ds_max_size=20,
+                 entropy_coef=0.05, img_res=32, batch_size=128):
 
         self.gamma = gamma
         self.environment = environment
