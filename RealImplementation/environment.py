@@ -45,7 +45,8 @@ class Action(Enum):
     DEZOOM = 8
     MARK = 9
 
-MODEL_RES = 32
+MODEL_RES = 64
+HIST_RES = 32
 
 class DummyEnv:
     """
@@ -77,7 +78,7 @@ class DummyEnv:
         self.vision = np.zeros(7, dtype=int)
         self.guided = True
         self.cv_cuda = check_cuda()
-        self.heat_map = np.zeros((MODEL_RES, MODEL_RES))
+        self.heat_map = np.zeros((HIST_RES, HIST_RES))
         self.replace_charlie = replace_charlie
 
     def place_charlie(self):
@@ -122,7 +123,7 @@ class DummyEnv:
     def load_env(self, img, mask, charlie):
         self.base_img = cv2.cvtColor(cv2.imread(img), cv2.COLOR_BGR2RGB)
         self.H, self.W, self.channels = self.base_img.shape
-        self.ratio = MODEL_RES / self.H
+        self.ratio = HIST_RES / self.H
         self.charlie = cv2.cvtColor(cv2.imread(charlie), cv2.COLOR_BGR2RGB)
         self.mask = cv2.imread(mask)
 
@@ -133,7 +134,7 @@ class DummyEnv:
             self.gpu_full_img.upload(self.full_img)
 
         min_dim = np.min([self.W, self.H])
-        self.hist_img = cv2.resize(self.full_img, (MODEL_RES, MODEL_RES), interpolation=cv2.INTER_NEAREST)
+        self.hist_img = cv2.resize(self.full_img, (HIST_RES, HIST_RES), interpolation=cv2.INTER_NEAREST)
 
         self.max_zoom = int(math.log(min_dim, 2))
         self.min_zoom = self.max_zoom - 4
@@ -255,7 +256,6 @@ class DummyEnv:
                     self.init_env()
             else:
                 reward -= 10
-
 
         return self.get_current_state_deep(), reward, is_terminal, action.value
 

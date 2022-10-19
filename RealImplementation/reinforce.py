@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 
 class PolicyNet(nn.Module):
-    def __init__(self, n_actions, img_res, n_hidden_nodes=1024, fine_tune=False):
+    def __init__(self, n_actions, img_res, hist_res, n_hidden_nodes=1024, fine_tune=False):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -21,10 +21,11 @@ class PolicyNet(nn.Module):
         self.action_space = np.arange(n_actions)
 
         self.img_res = img_res
-        self.split_index = (self.img_res * self.img_res * 3, self.img_res * self.img_res * 3)
+        self.hist_res = hist_res
+        self.split_index = (self.img_res * self.img_res * 3, self.hist_res * self.hist_res * 3)
 
         self.head = torch.nn.Sequential(
-            torch.nn.Linear(1312, n_hidden_nodes),
+            torch.nn.Linear(5920, n_hidden_nodes),
             torch.nn.ReLU(),
             torch.nn.Dropout(0.2),
             torch.nn.Linear(n_hidden_nodes, (n_hidden_nodes >> 1)),
@@ -66,7 +67,7 @@ class PolicyNet(nn.Module):
     def prepare_data(self, state):
         img, hist = torch.split(state, self.split_index, dim=1)
         img = torch.reshape(img, (-1 , self.img_res, self.img_res, 3))
-        hist = torch.reshape(hist, (-1 , self.img_res, self.img_res, 3))
+        hist = torch.reshape(hist, (-1 , self.hist_res, self.hist_res, 3))
         return img.permute(0, 3, 1, 2), hist.permute(0, 3, 1, 2)
 
     def forward(self, state):
@@ -86,7 +87,7 @@ class Reinforce:
     def __init__(self, environment, n_actions=10, learning_rate=0.001,
                  episodes=100, guided_episodes=100, gamma=0.1,
                  dataset_max_size=6, good_ds_max_size=20,
-                 entropy_coef=0.05, img_res=32, batch_size=128):
+                 entropy_coef=0.05, img_res=64, hist_res=32, batch_size=128):
 
         self.gamma = gamma
         self.environment = environment
@@ -98,7 +99,7 @@ class Reinforce:
         self.min_r = 0
         self.max_r = 1
         self.guided_episodes = guided_episodes
-        self.policy = PolicyNet(n_actions, img_res)
+        self.policy = PolicyNet(n_actions, img_res, hist_res)
         print(self.policy)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=learning_rate)
 
@@ -168,21 +169,28 @@ class Reinforce:
 
                 dataset.append((sum_episode_reward, (S_batch, A_batch, G_batch)))
                 if self.environment.nb_actions_taken < self.environment.nb_max_actions:
-                    good_behaviour_dataset.append((sum_episode_reward, (S_batch, A_batch, G_batch)))
+                    #good_behaviour_dataset.append((sum_episode_reward, (S_batch, A_batch, G_batch)))
+                    good_behaviour_dataset.append((S_batch, A_batch, G_batch))
 
-                if len(good_behaviour_dataset) > self.good_ds_max_size:
-                    good_behaviour_dataset = sorted(good_behaviour_dataset, key=itemgetter(0), reverse=True)
-                    good_behaviour_dataset.pop(-1)
+                #if len(good_behaviour_dataset) > self.good_ds_max_size:
+                #    good_behaviour_dataset = sorted(good_behaviour_dataset, key=itemgetter(0), reverse=True)
+                #    good_behaviour_dataset.pop(-1)
 
-                if len(dataset) > self.dataset_max_size:
-                    dataset.pop(-1)
+                #if len(dataset) > self.dataset_max_size:
+                #    dataset.pop(-1)
+                dataset = []
+                if len(good_behaviour_dataset) > 0:
+                    good_behaviour = random.choice(good_behaviour_dataset)
+                    dataset.append(good_behaviour)
+                dataset.append((S_batch, A_batch, G_batch))
+
 
                 counter = 0
                 sum_loss = 0.
-                combined_ds = dataset + good_behaviour_dataset
-                random.shuffle(combined_ds)
 
-                for _, batch in combined_ds:
+                #random.shuffle(combined_ds)
+
+                for batch in dataset:
 
                     S, A, G = batch
                     S = S.split(self.batch_size)
