@@ -85,11 +85,11 @@ class DummyEnv:
 
     def place_charlie(self):
         while True:
-            self.grid[self.charlie_x][self.charlie_y] = 0.5 + (random.random() / 10.)
+            self.grid[self.charlie_y][self.charlie_x] = 0.5 + (random.random() / 10.)
             x = random.randint(0, self.size - 1)
             y = random.randint(1, self.size - 1)
-            if self.grid[x][y] >= 0.5 and (0 <= self.grid[x][y - 1] < 0.5):
-                self.grid[x][y] = 1.
+            if self.grid[y][x] >= 0.5 and (0 <= self.grid[y][x - 1] < 0.5):
+                self.grid[y][x] = 1.
                 self.charlie_x = x
                 self.charlie_y = y
                 break
@@ -151,7 +151,7 @@ class DummyEnv:
 
     def compute_sub_grid(self):
         window = self.model_resolution << (self.z - 1)
-        self.sub_grid = self.grid[window * self.x:window + window * self.x, window * self.y:window + window * self.y]
+        self.sub_grid = self.grid[window * self.y:window + window * self.y, window * self.x:window + window * self.x]
 
         self.sub_vision = np.zeros((self.sub_grid.shape[0], self.sub_grid.shape[1], 3), dtype=float)
         self.sub_vision += self.sub_grid[:,:,None]
@@ -163,8 +163,8 @@ class DummyEnv:
         window = self.model_resolution << (self.z - 1)
 
         self.hist = np.zeros((self.size, self.size, 3), dtype=float) + self.grid[:, :, None]
-        self.hist[window * self.x:window + window * self.x, window * self.y:window + window * self.y] = [1., 0., 0.]
-        self.heat_map[window * self.x:window + window * self.x, window * self.y:window + window * self.y] += 1.
+        self.hist[window * self.y:window + window * self.y, window * self.x:window + window * self.x] = [1., 0., 0.]
+        self.heat_map[window * self.y:window + window * self.y, window * self.x:window + window * self.x] += 1.
 
         #img = cv2.resize(img, (10, 10), interpolation=cv2.INTER_NEAREST)
         self.hist = cv2.resize(self.hist, (20, 20), interpolation=cv2.INTER_NEAREST)
@@ -313,9 +313,9 @@ class DummyEnv:
                 color = [0, 1, 0]
 
             window = (self.model_resolution ** z) * 10
-            mm[window * x:window + window * x
-              ,window * y:window + window * y] = mm[window * x:window + window * x
-                                                         ,window * y:window + window * y] >> color
+            mm[window * y:window + window * y
+              ,window * x:window + window * x] = mm[window * y:window + window * y
+                                                         ,window * x:window + window * x] >> color
 
             frames.append(mm.copy())
 

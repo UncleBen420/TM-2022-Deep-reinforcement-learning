@@ -3,7 +3,7 @@ The goal of this environment is to find waldo in a simulated high resolution ima
 4 algorithms are compared: Q-learning, N-step Sarsa, Monte Carlo and Reinforce.
 """
 from matplotlib import pyplot as plt
-import EnvironmentDummySoft
+import EnvironmentDummy
 from Agents import QLearning, E_Greedy, MonteCarloOnPolicy, NStepSarsa
 from DeepAgent.reinforce import Reinforce
 
@@ -57,7 +57,7 @@ class Evaluator:
 
 if __name__ == '__main__':
 
-    DUMMY_ENV = EnvironmentDummySoft.DummyEnv(nb_max_actions=1000, replace_charlie=False, deep=True)
+    DUMMY_ENV = EnvironmentDummy.DummyEnv(nb_max_actions=1000, replace_charlie=False, deep=True)
     DUMMY_ENV.init_env()
 
     plt.imshow(DUMMY_ENV.render_board_img())

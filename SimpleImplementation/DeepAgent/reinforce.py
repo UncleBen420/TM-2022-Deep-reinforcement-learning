@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from torch.distributions import Categorical
 from tqdm import tqdm
-from EnvironmentDummySoft import Action
+from EnvironmentDummy import Action
 
 
 class Reinforce:
