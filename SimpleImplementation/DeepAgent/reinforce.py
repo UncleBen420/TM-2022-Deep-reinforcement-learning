@@ -1,18 +1,23 @@
 from operator import itemgetter
-
+"""
+This file contain an implementation of Reinforce.
+"""
 import numpy as np
 import torch
-
 from torch.distributions import Categorical
 from tqdm import tqdm
-
 from EnvironmentDummySoft import Action
 
 
 class Reinforce:
+    """
+    This file contain an implementation of monte carlo policy gradient (Reinforce).
+    """
 
     def __init__(self, environment, n_inputs, n_actions=7, n_hidden_nodes=128, learning_rate=0.001,
                  episodes=100, gamma=0.01, dataset_max_size=4, entropy_coef=0.1):
+
+        # description of the deep neural network.
         self.model = torch.nn.Sequential(
             torch.nn.Linear(n_inputs, n_hidden_nodes),
             torch.nn.ReLU(),
@@ -21,9 +26,7 @@ class Reinforce:
             torch.nn.Linear(n_hidden_nodes, n_actions),
             torch.nn.Softmax(dim=-1)
         )
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.action_space = np.arange(n_actions)
-        self.model.to(self.device)
         self.gamma = gamma
         self.environment = environment
         self.episodes = episodes
@@ -31,20 +34,38 @@ class Reinforce:
         self.entropy_coef = entropy_coef
         self.min_r = 0
         self.max_r = 1
-
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
 
     def predict(self, state):
+        """
+        This method return the probabilities of taking each action given a state
+        :param state: the current state of the environment
+        :return: the probabilities of each action
+        """
         action_probs = self.model(state)
         return action_probs
 
     def follow_policy(self, action_probs):
+        """
+        This method chose the action to take given the probabilities of each action
+        :param action_probs: the current actions probabilities
+        :return: return the action chosen by the agent
+        """
         return np.random.choice(self.action_space, p=action_probs)
 
     def minmax_scaling(self, x):
+        """
+        This method can apply a minmax scaling on the given data.
+        :param x: the data that will be scaled
+        :return: the scaled data
+        """
         return (x - self.min_r) / (self.max_r - self.min_r)
 
     def fit(self):
+        """
+        This method will run the learning process over n episode
+        :return: the rewards per episode and the loss per episode.
+        """
 
         dataset = []
         # for plotting
@@ -56,8 +77,6 @@ class Reinforce:
 
         with tqdm(range(self.episodes), unit="episode") as episode:
             for _ in episode:
-
-                episode_loss = []
                 S_batch = []
                 R_batch = []
                 A_batch = []

@@ -234,6 +234,7 @@ class UCB(Policy):
         :param state: state in which the agent is.
         :return: the probability for each action
         """
+
         chance_of_been_chosen = self.calculation(state)
         chance_of_been_chosen = ((chance_of_been_chosen - np.min(chance_of_been_chosen)) /
                                  (np.max(chance_of_been_chosen) - np.min(chance_of_been_chosen) + 0.000001))

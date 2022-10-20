@@ -1,8 +1,14 @@
+"""
+This file implement Temporal Difference algorithms.
+"""
 import numpy as np
 from Environment.GridWorld import Action
 
 
 class Sarsa:
+    """
+    This class implement SARSA
+    """
 
     def __init__(self, environment, policy, alpha=0.1, gamma=0.1, episodes=100, patience=200):
         self.environment = environment
@@ -17,6 +23,11 @@ class Sarsa:
         self.V = np.zeros((environment.size * environment.size))
 
     def fit(self, verbose=False):
+        """
+        This method will run the learning process over n episode
+        :param verbose: if the learning process must return data or not
+        :return: the V function over the episode and the reward over the episode
+        """
         if verbose:
             history = []
             rewards = []
@@ -52,10 +63,17 @@ class Sarsa:
             return history, rewards
 
     def get_policy(self):
+        """
+        This method return which action have the most probabilities per states
+        :return: an action per state
+        """
         return np.argmax(self.Q, axis=1)
 
 
 class QLearning:
+    """
+    This class implement Qlearning
+    """
 
     def __init__(self, environment, policy, alpha=0.1, gamma=0.1, episodes=100, patience=200):
         self.environment = environment
@@ -73,6 +91,12 @@ class QLearning:
         self.policy_history = []
 
     def fit(self, verbose=False, trajectory=False):
+        """
+        This method will run the learning process over n episode
+        :param trajectory: if the algorithm must record all the step taken form the beginning
+        :param verbose: if the learning process must return data or not
+        :return: the V function over the episode and the reward over the episode
+        """
         if verbose:
             history = []
             rewards = []
@@ -115,10 +139,17 @@ class QLearning:
             return history, rewards
 
     def get_policy(self):
+        """
+        This method return which action have the most probabilities per states
+        :return: an action per state
+        """
         return np.argmax(self.Q, axis=1)
 
 
 class DoubleQLearning:
+    """
+    This class implement the algorithm double Q-learning
+    """
 
     def __init__(self, environment, policy, alpha=0.1, gamma=0.1, episodes=100, patience=200):
         self.environment = environment
@@ -135,6 +166,11 @@ class DoubleQLearning:
         self.V = np.zeros((environment.size * environment.size))
 
     def fit(self, verbose=False):
+        """
+        This method will run the learning process over n episode
+        :param verbose: if the learning process must return data or not
+        :return: the V function over the episode and the reward over the episode
+        """
         if verbose:
             history = []
             rewards = []
@@ -179,10 +215,17 @@ class DoubleQLearning:
             return history, rewards
 
     def get_policy(self):
+        """
+        This method return which action have the most probabilities per states
+        :return: an action per state
+        """
         return np.argmax(self.Q1, axis=1)
 
 
 class ExpectedSarsa:
+    """
+    This class implement expected sarsa
+    """
 
     def __init__(self, environment, policy, alpha=0.1, gamma=0.1, episodes=100, patience=200):
         self.environment = environment
@@ -197,6 +240,11 @@ class ExpectedSarsa:
         self.V = np.zeros((environment.size * environment.size))
 
     def fit(self, verbose=False):
+        """
+        This method will run the learning process over n episode
+        :param verbose: if the learning process must return data or not
+        :return: the V function over the episode and the reward over the episode
+        """
         if verbose:
             history = []
             rewards = []
@@ -235,4 +283,8 @@ class ExpectedSarsa:
             return history, rewards
 
     def get_policy(self):
+        """
+        This method return which action have the most probabilities per states
+        :return: an action per state
+        """
         return np.argmax(self.Q, axis=1)

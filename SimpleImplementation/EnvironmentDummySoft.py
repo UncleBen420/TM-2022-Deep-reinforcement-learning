@@ -5,7 +5,6 @@ states of the environment are not linked to it's size (contrary to a grid world 
 import math
 import random
 from enum import Enum
-import cv2
 import imageio
 import numpy as np
 
@@ -18,15 +17,6 @@ class Piece(Enum):
     CHARLIE = {"code": 'B', 'label': 0}
     WATER = {"code": '~', 'label': 2}
     GROUND = {"code": '^', 'label': 3}
-
-
-class Event(Enum):
-    """
-    this enum class simplify the different state of the grid
-    """
-    UNKNOWN = 0
-    VISITED = 1
-    BLOCKED = 2
 
 
 class Action(Enum):
@@ -56,8 +46,6 @@ class DummyEnv:
         self.nb_actions_taken = 0
         self.grid = None
         self.history = []
-        self.marked = []
-        self.marked_map = np.zeros((size, size), dtype=bool)
         self.nb_actions_taken = 0
         self.nb_max_actions = nb_max_actions
         self.nb_action = 7
@@ -72,7 +60,7 @@ class DummyEnv:
         # (x, y)
         self.sub_grid = None
         # State of the environment
-        self.dummy_boat_model = None
+        self.dummy_charlie_model = None
         self.dummy_surface_model = None
         self.vision = np.zeros(7, dtype=int)
 
@@ -82,14 +70,13 @@ class DummyEnv:
 
         def model_probalities(i):
             """
-            This function is vectorize over all the pieces on the subgrid. It gives the probability of having
-            a boat or a house.
+            This function is vectorize over all the pieces on the subgrid. It gives the probability of seen charlie.
             :param i: the Piece that is analysed.
             :return: the changed value of i
             """
             if i is Piece.CHARLIE:
                 # simulate a neural network, the more the agent zoom the more the probability of
-                # seeing the boat increase
+                # seeing charlie(waldo) increase
                 if not np.random.binomial(1, .95 / self.z):
                     i = Piece.WATER
             return i
@@ -97,6 +84,9 @@ class DummyEnv:
         self.get_probabilities = np.vectorize(model_probalities)
 
     def place_charlie(self):
+        """
+        this method place change the charlie's position on the map.
+        """
         while True:
             self.grid[self.charlie_x][self.charlie_y] = Piece.WATER
             x = random.randint(0, self.size - 1)
@@ -114,21 +104,14 @@ class DummyEnv:
         :return: the current state of the environment.
         """
         del self.history
-        del self.marked
-        del self.marked_map
 
         self.history = []
         self.action_dones = []
-        self.marked = []
-        self.marked_map = np.zeros((self.size, self.size), dtype=bool)
         self.nb_actions_taken = 0
         self.z = 1
-        #self.x = random.randint(0, self.max_move - 1)
-        #self.y = random.randint(0, self.max_move - 1)
         self.x = 0
         self.y = 0
         self.nb_mark = 0
-
         self.marked_correctly = False
 
         if self.replace_charlie:
@@ -136,7 +119,6 @@ class DummyEnv:
 
         self.compute_sub_grid()
         self.fit_dummy_model()
-        self.get_vision()
 
         if self.deep:
             S = self.get_current_state_deep()
@@ -146,8 +128,14 @@ class DummyEnv:
         return S
 
     def init_env(self):
+        """
+        This method is used to generate an environment.
+        """
 
         def dilate():
+            """
+            This function create lake by dilation.
+            """
             temp = np.full((self.size, self.size), Piece.GROUND, dtype=Piece)
             for i in range(self.size):
                 for j in range(self.size):
@@ -163,55 +151,32 @@ class DummyEnv:
 
         self.grid = np.full((self.size * self.size), Piece.GROUND, dtype=Piece)
         self.reward_grid = np.zeros((self.size, self.size))
-
+        # Place 5 lake on the map
         for i in range(5):
             self.grid[i] = Piece.WATER
 
         np.random.shuffle(self.grid)
 
         self.grid = self.grid.reshape((self.size, self.size))
+        # Make the lake grow.
         for _ in range(10):
             dilate()
 
         self.place_charlie()
 
     def compute_sub_grid(self):
+        """
+        Compute the sub grid at the agent position given the x, y and z axis.
+        """
         window = self.model_resolution ** self.z
         self.sub_grid = self.grid[window * self.x:window + window * self.x, window * self.y:window + window * self.y]
 
-    def get_distance_reward(self):
-        pad = self.model_resolution ** self.z
-        return math.sqrt((self.x * pad - self.charlie_x) ** 2 + (self.y * pad - self.charlie_y) ** 2 + (self.z - 1) ** 2)
-
-    def get_vision(self):
-        move_set = [(self.x - 1, self.y, self.z),
-                    (self.x + 1, self.y, self.z),
-                    (self.x, self.y - 1, self.z),
-                    (self.x, self.y + 1, self.z),
-                    (self.x, self.y, self.z - 1),
-                    (self.x, self.y, self.z + 1),
-                    (self.x, self.y, self.z)]
-        # check if a place had already been visited or marked
-        for i in range(7):
-            if move_set[i] in self.history:
-                self.vision[i] = Event.VISITED.value
-            else:
-                self.vision[i] = Event.UNKNOWN.value
-
-        self.vision[0] = Event.BLOCKED.value if self.x <= 0 else self.vision[0]
-        self.vision[1] = Event.BLOCKED.value if (self.x + 1) >= self.size / (
-                self.model_resolution ** self.z) else self.vision[1]
-
-        self.vision[2] = Event.BLOCKED.value if self.y <= 0 else self.vision[2]
-        self.vision[3] = Event.BLOCKED.value if (self.y + 1) >= self.size / (
-                self.model_resolution ** self.z) else self.vision[3]
-
-        self.vision[4] = Event.BLOCKED.value if self.z - 1 <= 0 else self.vision[4]
-        self.vision[5] = Event.BLOCKED.value if self.z + 1 >= self.max_zoom else self.vision[5]
-
     def fit_dummy_model(self):
+        """
+        give the state of the current sub_grid. (if it contains charlie or if the agent is on water or land=
+        """
         proba = self.get_probabilities(self.sub_grid)
-        self.dummy_boat_model = 1 if np.count_nonzero(proba == Piece.CHARLIE) else 0
+        self.dummy_charlie_model = 1 if np.count_nonzero(proba == Piece.CHARLIE) else 0
         if np.count_nonzero(proba == Piece.GROUND) and np.count_nonzero(proba == Piece.WATER):
             self.dummy_surface_model = 2
         elif np.count_nonzero(proba == Piece.WATER):
@@ -220,7 +185,11 @@ class DummyEnv:
             self.dummy_surface_model = 0
 
     def get_current_state(self):
-        return self.states[self.dummy_boat_model][self.dummy_surface_model][self.z - 1][self.x][self.y]
+        """
+        This method give the current state has a number of all the possible state.
+        :return: the current state
+        """
+        return self.states[self.dummy_charlie_model][self.dummy_surface_model][self.z - 1][self.x][self.y]
 
     def sub_grid_value(self, i):
         """
@@ -232,9 +201,12 @@ class DummyEnv:
         return i.value['label']
 
     def get_current_state_deep(self):
-
+        """
+        give the current state has an array but with the same information has the classic state.
+        :return: the current state.
+        """
         deep_vision = []
-        deep_vision.append(self.dummy_boat_model)
+        deep_vision.append(self.dummy_charlie_model)
         deep_vision.append(self.dummy_surface_model)
         deep_vision.append(self.x)
         deep_vision.append(self.y)
@@ -243,11 +215,21 @@ class DummyEnv:
         return np.array(deep_vision, dtype=float)
 
     def get_nb_state(self):
+        """
+        :return: the number of states
+        """
         return self.states.size
 
     def take_action(self, action):
+        """
+        This method allow the agent to take an action over the environment.
+        :param action: the number of the action that the agent has take.
+        :return: the next state, the reward, if the state is terminal and a tips of which action the agent should have
+        choose.
+        """
         action = Action(action)
 
+        # history is used to plot the trajectory of the agent
         self.history.append((self.x, self.y, self.z))
         self.action_dones.append(action)
 
@@ -255,41 +237,36 @@ class DummyEnv:
         should_have_mark = self.z <= 1 and np.count_nonzero(self.sub_grid == Piece.CHARLIE)
 
         if action == Action.LEFT:
-            self.x -= 1 if self.vision[0] != Event.BLOCKED.value else 0
+            self.x -= 0 if self.x <= 0 else 1
         elif action == Action.UP:
-            self.y -= 1 if self.vision[2] != Event.BLOCKED.value else 0
+            self.y -= 0 if self.y <= 0 else 1
         elif action == Action.RIGHT:
-            self.x += 1 if self.vision[1] != Event.BLOCKED.value else 0
+            self.x += 0 if (self.x + 1) >= self.size / (self.model_resolution ** self.z) else 1
         elif action == Action.DOWN:
-            self.y += 1 if self.vision[3] != Event.BLOCKED.value else 0
+            self.y += 0 if (self.y + 1) >= self.size / (self.model_resolution ** self.z) else 1
         elif action == Action.ZOOM:
-            if self.vision[4] != Event.BLOCKED.value:
+            if not self.z - 1 <= 0:
                 self.z -= 1
                 self.x = self.x << 1
                 self.y = self.y << 1
-
         elif action == Action.DEZOOM:
-            if self.vision[5] != Event.BLOCKED.value:
+            if not self.z + 1 >= self.max_zoom:
                 self.x = int(self.x / self.model_resolution)
                 self.y = int(self.y / self.model_resolution)
                 self.z += 1
 
         self.compute_sub_grid()
 
+        # if the agent has not mark but should have, the last action is not marked correctly.
         if not action == Action.MARK and should_have_mark:
             action = Action.MARK
         elif action == Action.MARK and should_have_mark:
             self.marked_correctly = True
 
-        self.get_vision()
         self.fit_dummy_model()
         self.nb_actions_taken += 1
 
-        self.get_current_state_deep()
-
-        reward = - self.get_distance_reward()
-        if self.history[-1] in self.history[:-1]:
-            reward = -10000
+        reward = -1
 
         is_terminal = self.nb_max_actions <= self.nb_actions_taken
 
@@ -297,9 +274,9 @@ class DummyEnv:
             self.nb_mark += 1
             if should_have_mark:
                 is_terminal = True
-                reward = 10000
+                reward = 100
             else:
-                reward = -10000
+                reward = -10
 
         if self.deep:
             S = self.get_current_state_deep()

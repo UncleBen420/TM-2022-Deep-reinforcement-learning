@@ -3,7 +3,6 @@ This file contains the classes implementing Monte Carlo method
 """
 import random
 import numpy as np
-
 from Environment import Agent
 from Environment.GridWorld import Action
 

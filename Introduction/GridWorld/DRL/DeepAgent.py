@@ -24,6 +24,12 @@ class DQLearning:
         self.nb_action = self.environment.nb_action
 
     def fit(self, verbose=False):
+        """
+        This method will run the learning process over n episode
+        :param verbose: if the learning process must return data or not
+        :return: the V function over the episode and the reward over the episode
+        """
+
         if verbose:
             history = []
             rewards = []
@@ -79,4 +85,8 @@ class DQLearning:
             return history, rewards, loss
 
     def get_policy(self):
+        """
+        This method return which action have the most probabilities per states
+        :return: an action per state
+        """
         return np.argmax(self.Q, axis=1)

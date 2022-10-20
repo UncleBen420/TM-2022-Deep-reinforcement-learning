@@ -167,7 +167,6 @@ class NStepSarsa:
 
         return mean_v, rewards, nb_mark, nb_action, successful_marks
 
-
     def get_policy(self):
         """
         this method allow to get the greedy policy for the agent
@@ -180,6 +179,7 @@ class MonteCarloOnPolicy:
     """
     Implementation of a Monte Carlo exploratory search.
     """
+
     def __init__(self, environment, policy, episodes=1000, gamma=0.1):
         self.environment = environment
         self.episodes = episodes
@@ -248,56 +248,6 @@ class MonteCarloOnPolicy:
                 episode.set_postfix(mean_v=mv, rewards=reward, steps_taken=st, nb_marked=nbm)
 
         return mean_v, rewards, nb_mark, nb_action, successful_marks
-
-
-class DummyAgent:
-
-    def __init__(self, environment, alpha=0.01, gamma=0.01, episodes=100):
-        self.environment = environment
-        self.episodes = episodes
-        self.a = alpha
-        self.gamma = gamma
-
-        self.policy = RandomPolicy()
-        self.policy.set_agent(self)
-
-        # for evaluation
-        self.V = np.zeros(environment.get_nb_state())
-        # for visualisation
-        self.trajectory = []
-        self.policy_history = []
-
-    def fit(self, verbose=False):
-        if verbose:
-            history = []
-            rewards = []
-
-        for _ in range(self.episodes):
-            S = self.environment.reload_env()
-            if verbose:
-                reward = 0
-
-            while True:
-                A = self.policy.chose_action(S)
-                S_prime, R, is_terminal = self.environment.take_action(A)
-
-                # evaluation of V
-                self.V[S] += self.a * (R + self.gamma * self.V[S_prime] - self.V[S])
-                S = S_prime
-
-                if verbose:
-                    reward += R
-
-                if is_terminal:
-                    break
-
-            if verbose:
-                history.append(self.V.copy())
-                rewards.append(reward)
-
-        if verbose:
-            return history, rewards
-
 
 
 class Policy(ABC):
@@ -371,6 +321,7 @@ class Greedy(Policy):
     """
     Implementation of a greedy policy
     """
+
     def chose_action(self, state):
         """
         return the chosen action according the greedy policy (the argmax of Q())
@@ -457,6 +408,7 @@ class RandomPolicy(Policy):
     """
     Implementation of a greedy policy
     """
+
     def chose_action(self, state):
         """
         return the chosen action according the greedy policy (the argmax of Q())

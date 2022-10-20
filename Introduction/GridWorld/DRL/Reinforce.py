@@ -1,19 +1,22 @@
+"""
+This file contain the implementation a monte carlo gradient policy (Reinforce).
+"""
 from operator import itemgetter
-
-import numpy as np
-import torch
-from matplotlib import pyplot as plt
-from torch import nn
 from torch.distributions import Categorical
 from tqdm import tqdm
-
+import numpy as np
+import torch
 from Environment.GridWorld import Action
 
 
 class Reinforce:
+    """
+    This class contain the implementation a monte carlo gradient policy (Reinforce).
+    """
 
     def __init__(self, environment, n_inputs, n_actions=4, n_hidden_nodes=128, learning_rate=0.0001,
                  episodes=100, gamma=0.01, dataset_max_size=4, entropy_coef=0.2):
+        # description of the deep neural model used by the agent
         self.model = torch.nn.Sequential(
             torch.nn.Linear(n_inputs, n_hidden_nodes),
             torch.nn.ReLU(),
@@ -22,9 +25,7 @@ class Reinforce:
             torch.nn.Linear(n_hidden_nodes, n_actions),
             torch.nn.Softmax(dim=-1)
         )
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.action_space = np.arange(4)
-        self.model.to(self.device)
         self.gamma = gamma
         self.environment = environment
         self.episodes = episodes
@@ -32,20 +33,37 @@ class Reinforce:
         self.entropy_coef = entropy_coef
         self.min_r = environment.min_reward
         self.max_r = environment.max_reward
-
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
 
     def predict(self, state):
-        action_probs = self.model(state)
-        return action_probs
+        """
+        This method return the probabilities of taking each action given a state
+        :param state: the current state of the environment
+        :return: the probabilities of each action
+        """
+        return self.model(state)
 
     def follow_policy(self, action_probs):
+        """
+        This method chose the action to take given the probabilities of each action
+        :param action_probs: the current actions probabilities
+        :return: return the action chosen by the agent
+        """
         return np.random.choice(self.action_space, p=action_probs)
 
     def minmax_scaling(self, x):
+        """
+        This method can apply a minmax scaling on the given data.
+        :param x: the data that will be scaled
+        :return: the scaled data
+        """
         return (x - self.min_r) / (self.max_r - self.min_r)
 
     def fit(self):
+        """
+        This method will run the learning process over n episode
+        :return: the rewards per episode and the loss per episode.
+        """
 
         losses = []
         rewards = []
@@ -53,16 +71,11 @@ class Reinforce:
 
         with tqdm(range(self.episodes), unit="episode") as episode:
             for _ in episode:
-
-                episode_loss = []
                 S_batch = []
                 R_batch = []
                 A_batch = []
 
                 S = 0  # initial state
-
-                reward = 0
-                V_sum = 0
                 nb_step = 0
 
                 for _ in range(1000):

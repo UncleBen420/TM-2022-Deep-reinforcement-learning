@@ -16,7 +16,7 @@ class PolicyNet(nn.Module):
         self.action_space = np.arange(n_actions)
 
         self.img_res = img_res
-        self.split_index = (self.img_res * self.img_res * 3, self.img_res * self.img_res * 3)
+        self.split_index = (self.img_res * self.img_res * 3, 20 * 20 * 3)
 
         self.vision_backbone = torch.nn.Sequential(
             torch.nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3),
@@ -31,13 +31,13 @@ class PolicyNet(nn.Module):
             torch.nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3),
             torch.nn.ReLU(),
             torch.nn.Dropout(0.2),
-            torch.nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3),
+            torch.nn.Conv2d(in_channels=32, out_channels=16, kernel_size=3),
             torch.nn.ReLU(),
             torch.nn.Flatten(),
         )
 
         self.head = torch.nn.Sequential(
-            torch.nn.Linear(4608, n_hidden_nodes),
+            torch.nn.Linear(6400, n_hidden_nodes),
             torch.nn.ReLU(),
             torch.nn.Linear(n_hidden_nodes, n_hidden_nodes),
             torch.nn.ReLU(),
@@ -51,7 +51,7 @@ class PolicyNet(nn.Module):
     def prepare_data(self, state):
         img, hist = torch.split(state, self.split_index, dim=1)
         img = torch.reshape(img, (-1 , self.img_res, self.img_res, 3))
-        hist = torch.reshape(hist, (-1 , self.img_res, self.img_res, 3))
+        hist = torch.reshape(hist, (-1 , 20, 20, 3))
         return img.permute(0, 3, 1, 2), hist.permute(0, 3, 1, 2)
 
     def forward(self, state):
@@ -70,7 +70,7 @@ class Reinforce:
 
     def __init__(self, environment, n_actions=10, learning_rate=0.001,
                  episodes=100, guided_episodes=100, gamma=0.01, dataset_max_size=6, good_ds_max_size=50,
-                 entropy_coef=0.2, img_res=10):
+                 entropy_coef=0.01, img_res=10):
 
         self.gamma = gamma
         self.environment = environment
@@ -90,7 +90,6 @@ class Reinforce:
 
     def fit(self):
 
-        dataset = []
         good_behaviour_dataset = []
         # for plotting
         losses = []
@@ -149,7 +148,6 @@ class Reinforce:
                 self.max_r = max(torch.max(G_batch), self.max_r)
                 G_batch = self.minmax_scaling(G_batch)
 
-                dataset.append((sum_episode_reward, (S_batch, A_batch, G_batch)))
                 if self.environment.nb_actions_taken < self.environment.nb_max_actions:
                     good_behaviour_dataset.append((sum_episode_reward, (S_batch, A_batch, G_batch)))
 
@@ -157,15 +155,16 @@ class Reinforce:
                     good_behaviour_dataset = sorted(good_behaviour_dataset, key=itemgetter(0), reverse=True)
                     good_behaviour_dataset.pop(-1)
 
-                if len(dataset) > self.dataset_max_size:
-                    dataset.pop(-1)
+                dataset = []
+                if len(good_behaviour_dataset) > 0:
+                    _, good_behaviour = random.choice(good_behaviour_dataset)
+                    dataset.append(good_behaviour)
+                dataset.append((S_batch, A_batch, G_batch))
 
                 counter = 0
                 sum_loss = 0.
-                combined_ds = dataset + good_behaviour_dataset
-                random.shuffle(combined_ds)
 
-                for _, batch in combined_ds:
+                for batch in dataset:
                     S, A, G = batch
 
                     # Calculate loss

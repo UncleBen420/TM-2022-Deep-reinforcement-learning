@@ -52,17 +52,17 @@ class TestEnv:
         de = EnvironmentDummySoft.DummyEnv()
         de.init_env()
 
-        de.dummy_boat_model = 0
+        de.dummy_charlie_model = 0
         de.dummy_surface_model = 0
         de.vision = [0, 0, 0, 0, 0, 0, 0]
         assert de.get_current_state() == 0
 
-        de.dummy_boat_model = 0
+        de.dummy_charlie_model = 0
         de.dummy_surface_model = 0
         de.vision = [0, 0, 0, 0, 0, 0, 1]
         assert de.get_current_state() == 1
 
-        de.dummy_boat_model = 0
+        de.dummy_charlie_model = 0
         de.dummy_surface_model = 1
         de.vision = [0, 0, 0, 0, 0, 0, 0]
         assert de.get_current_state() == 12288
@@ -77,12 +77,12 @@ class TestEnv:
         de.sub_grid = np.array([[EnvironmentDummySoft.Piece.WATER, EnvironmentDummySoft.Piece.CHARLIE],
                                 [EnvironmentDummySoft.Piece.CHARLIE, EnvironmentDummySoft.Piece.WATER]])
         de.fit_dummy_model()
-        assert de.dummy_boat_model == 0
+        assert de.dummy_charlie_model == 0
         assert de.dummy_surface_model == 1
 
         de.z = 1
         de.fit_dummy_model()
-        assert de.dummy_boat_model == 1
+        assert de.dummy_charlie_model == 1
         assert de.dummy_surface_model == 1
 
         de.sub_grid = np.array([[EnvironmentDummySoft.Piece.HOUSE, EnvironmentDummySoft.Piece.GROUND],
@@ -90,12 +90,12 @@ class TestEnv:
 
         de.z = 3
         de.fit_dummy_model()
-        assert de.dummy_boat_model == 0
+        assert de.dummy_charlie_model == 0
         assert de.dummy_surface_model == 0
 
         de.z = 1
         de.fit_dummy_model()
-        assert de.dummy_boat_model == 0
+        assert de.dummy_charlie_model == 0
         assert de.dummy_surface_model == 0
 
         EnvironmentDummySoft.np.random.binomial = temp

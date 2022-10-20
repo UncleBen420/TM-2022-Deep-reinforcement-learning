@@ -50,8 +50,6 @@ class Evaluator:
         self.axs[4].set_xlabel('nb iteration')
         self.axs[4].set_ylabel('loss')
 
-        #print(len(np.count_nonzero(successful_marks[np.array(nb_action) < 1000])))
-
     def show(self):
         self.axs[0].legend(bbox_to_anchor=(1.3, 0.6))
         plt.show()
@@ -59,7 +57,7 @@ class Evaluator:
 
 if __name__ == '__main__':
 
-    de = environment.DummyEnv(nb_max_actions=500, replace_env=True) #replace_charlie=True)
+    de = environment.DummyEnv(nb_max_actions=1000, replace_charlie=False)
 
     de.init_env()
     plt.imshow(de.render_board_img())
@@ -67,7 +65,7 @@ if __name__ == '__main__':
 
     evaluator = Evaluator()
 
-    rein = Reinforce(de, episodes=300, guided_episodes=150)
+    rein = Reinforce(de, episodes=1000, guided_episodes=150)
     evaluator.evaluate(rein, "Reinforce")
     evaluator.show()
     plt.imshow(de.heat_map)

@@ -53,7 +53,7 @@ class DummyEnv:
     """
 
     def __init__(self, size=64, model_resolution=2, max_zoom=4, nb_max_actions=100,
-                 replace_charlie=True, replace_env=False):
+                 replace_charlie=False, replace_env=False):
         self.action_dones = None
         self.charlie_y = 0
         self.charlie_x = 0
@@ -167,7 +167,7 @@ class DummyEnv:
         self.heat_map[window * self.x:window + window * self.x, window * self.y:window + window * self.y] += 1.
 
         #img = cv2.resize(img, (10, 10), interpolation=cv2.INTER_NEAREST)
-        self.hist = cv2.resize(self.hist, (10, 10), interpolation=cv2.INTER_NEAREST)
+        self.hist = cv2.resize(self.hist, (20, 20), interpolation=cv2.INTER_NEAREST)
 
     def get_distance_reward(self):
         return math.sqrt(((self.x << (self.max_zoom - self.z)) - self.charlie_x) ** 2 +
@@ -239,7 +239,8 @@ class DummyEnv:
         elif action == Action.MARK and should_have_mark:
             self.marked_correctly = True
 
-        reward = - self.get_distance_reward()
+        #reward = - self.get_distance_reward()
+        reward = -1
 
         is_terminal = self.nb_max_actions <= self.nb_actions_taken
 
@@ -247,20 +248,14 @@ class DummyEnv:
             self.nb_mark += 1
             if should_have_mark:
                 is_terminal = True
-                reward += 1000
+                reward += 100
 
                 if self.replace_env:
                     self.init_env()
                 elif self.replace_charlie:
                     self.place_charlie()
-
-
-
             else:
-                reward -= 1000
-
-        elif old_pos == (self.x, self.y, self.z):
-            reward -= 2
+                reward -= 10
 
         return self.get_current_state_deep(), reward, is_terminal, action.value
 
