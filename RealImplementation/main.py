@@ -50,8 +50,6 @@ class Evaluator:
         self.axs[4].set_xlabel('nb iteration')
         self.axs[4].set_ylabel('loss')
 
-        #print(len(np.count_nonzero(successful_marks[np.array(nb_action) < 1000])))
-
     def show(self):
         self.axs[0].legend(bbox_to_anchor=(1.3, 0.6))
         plt.show()
@@ -59,15 +57,13 @@ class Evaluator:
 
 if __name__ == '__main__':
 
-    de = environment.DummyEnv(nb_max_actions=5000, replace_charlie=True)
-    de.load_env("/home/remy/Documents/P9467.png", "/home/remy/Documents/mask1.png", "/home/remy/Documents/waldo.png")
-    de.init_env()
+    ENVIRONMENT = environment.Environment("../../Dataset_waldo", nb_max_actions=5000, difficulty=0)
+    ENVIRONMENT.init_env()
 
-    evaluator = Evaluator()
+    EVALUATOR = Evaluator()
 
-    rein = Reinforce(de, episodes=1000, guided_episodes=50)
-    evaluator.evaluate(rein, "Reinforce")
-    evaluator.show()
-    plt.imshow(de.heat_map)
+    EVALUATOR.evaluate(Reinforce(ENVIRONMENT, episodes=1000, guided_episodes=50), "Reinforce")
+    EVALUATOR.show()
+    plt.imshow(ENVIRONMENT.heat_map)
     plt.show()
-    de.get_gif_trajectory("haha.gif")
+    ENVIRONMENT.get_gif_trajectory("haha.gif")

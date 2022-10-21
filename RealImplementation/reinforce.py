@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 
 class PolicyNet(nn.Module):
-    def __init__(self, n_actions, img_res, hist_res, n_hidden_nodes=2048, fine_tune=False):
+    def __init__(self, n_actions, img_res, hist_res, n_hidden_nodes=2048, n_kernels=32, fine_tune=False):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -25,7 +25,7 @@ class PolicyNet(nn.Module):
         self.split_index = (self.img_res * self.img_res * 3, self.hist_res * self.hist_res * 3)
 
         self.head = torch.nn.Sequential(
-            torch.nn.Linear(21760, n_hidden_nodes),
+            torch.nn.Linear(18432, n_hidden_nodes),
             torch.nn.ReLU(),
             #torch.nn.Dropout(0.2),
             torch.nn.Linear(n_hidden_nodes, (n_hidden_nodes >> 1)),
@@ -38,23 +38,22 @@ class PolicyNet(nn.Module):
         )
 
         self.vision_backbone = torch.nn.Sequential(
-            torch.nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3),
+            torch.nn.Conv2d(in_channels=3, out_channels=n_kernels, kernel_size=3),
             torch.nn.ReLU(),
             torch.nn.Dropout(0.2),
-            torch.nn.MaxPool2d(3),
-            torch.nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3),
+            torch.nn.Conv2d(in_channels=n_kernels, out_channels=64, kernel_size=3),
             torch.nn.ReLU(),
+            torch.nn.MaxPool2d(3),
             torch.nn.Flatten(),
         )
 
         self.history_backbone = torch.nn.Sequential(
-            torch.nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3),
+            torch.nn.Conv2d(in_channels=3, out_channels=n_kernels, kernel_size=3),
             torch.nn.ReLU(),
             torch.nn.Dropout(0.2),
-            torch.nn.MaxPool2d(3),
-            torch.nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3),
+            torch.nn.Conv2d(in_channels=n_kernels, out_channels=64, kernel_size=3),
             torch.nn.ReLU(),
-            torch.nn.MaxPool2d(2),
+            torch.nn.MaxPool2d(3),
             torch.nn.Flatten(),
         )
 
@@ -85,7 +84,7 @@ class Reinforce:
     def __init__(self, environment, n_actions=10, learning_rate=0.0001,
                  episodes=100, guided_episodes=100, gamma=0.05,
                  dataset_max_size=6, good_ds_max_size=20,
-                 entropy_coef=0.01, img_res=64, hist_res=32, batch_size=128):
+                 entropy_coef=0.01, img_res=40, hist_res=40, batch_size=128):
 
         self.gamma = gamma
         self.environment = environment
@@ -180,6 +179,7 @@ class Reinforce:
 
                 counter = 0
                 sum_loss = 0.
+                sum_entropy = 0.
 
                 #random.shuffle(combined_ds)
 
@@ -199,12 +199,15 @@ class Reinforce:
                         # Calculate loss
                         self.optimizer.zero_grad()
 
-                        logprob = torch.log(self.policy(S_))
-                        selected_logprobs = G_ * torch.gather(logprob, 1, A_.unsqueeze(1)).squeeze()
-                        policy_loss = - selected_logprobs.mean()
+                        action_probs = self.policy(S_)
+                        log_probs = torch.log(action_probs)
+                        selected_log_probs = G_ * torch.gather(log_probs, 1, A_.unsqueeze(1)).squeeze()
+                        policy_loss = - selected_log_probs.mean()
+                        # old version but not sure about it
+                        #entropy = Categorical(probs=log_probs).entropy()
+                        #entropy_loss = - entropy.mean()
 
-                        entropy = Categorical(probs=logprob).entropy()
-                        entropy_loss = - entropy.mean()
+                        entropy_loss = - (action_probs * log_probs).sum(dim=1).mean()
 
                         loss = policy_loss + self.entropy_coef * entropy_loss
 
@@ -214,6 +217,7 @@ class Reinforce:
                         self.optimizer.step()
 
                         sum_loss += loss.item()
+                        sum_entropy += entropy_loss.item()
                         counter += 1
 
                 losses.append(sum_loss / counter)
@@ -224,6 +228,7 @@ class Reinforce:
                 nb_mark.append(nbm)
                 successful_marks.append(self.environment.marked_correctly)
 
-                episode.set_postfix(rewards=rewards[-1], loss=sum_loss / counter, nb_action=st, nb_mark=nbm)
+                episode.set_postfix(rewards=rewards[-1], loss=sum_loss / counter,
+                                    entropy=sum_entropy / counter, nb_action=st, nb_mark=nbm)
 
         return losses, rewards, nb_mark, nb_action, successful_marks

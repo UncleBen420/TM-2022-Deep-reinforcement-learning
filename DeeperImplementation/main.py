@@ -57,7 +57,7 @@ class Evaluator:
 
 if __name__ == '__main__':
 
-    de = environment.DummyEnv(nb_max_actions=1000, replace_charlie=False)
+    de = environment.DummyEnv(nb_max_actions=1000, replace_charlie=True)
 
     de.init_env()
     plt.imshow(de.render_board_img())

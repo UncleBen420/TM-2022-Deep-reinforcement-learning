@@ -1,8 +1,8 @@
 """
-This file implement a dummy environment to train the agents on and compare them. The term "Soft" mean that the
-states of the environment are not linked to it's size (contrary to a grid world for exemple).
+This file contain the implementation of the real environment.
 """
 import math
+import os
 import random
 import re
 from enum import Enum
@@ -13,7 +13,7 @@ import numpy as np
 
 def check_cuda():
     """
-    check if opencv can detect cuda
+    check if opencv can use cuda
     :return: return True if opencv can detect cuda. False otherwise.
     """
     cv_info = [re.sub('\s+', ' ', ci.strip()) for ci in cv2.getBuildInformation().strip().split('\n')
@@ -45,24 +45,22 @@ class Action(Enum):
     DEZOOM = 8
     MARK = 9
 
-MODEL_RES = 64
-HIST_RES = 32
+MODEL_RES = 40
+HIST_RES = 40
 
-class DummyEnv:
+class Environment:
     """
     this class implement a problem where the agent must mark the place where he have found boat.
     He must not mark place where there is house.
     """
 
-    def __init__(self, nb_max_actions=100, replace_charlie=False):
+    def __init__(self, dataset_path, nb_max_actions=100, difficulty=0):
+        self.base_img = None
         self.gpu_full_img = None
-        self.action_dones = None
         self.charlie_y = 0
         self.charlie_x = 0
-        self.reward_grid = None
         self.nb_actions_taken = 0
-        self.grid = None
-        self.history = []
+        self.history = None
         self.nb_actions_taken = 0
         self.nb_max_actions = nb_max_actions
         self.nb_action = 7
@@ -79,19 +77,25 @@ class DummyEnv:
         self.guided = True
         self.cv_cuda = check_cuda()
         self.heat_map = np.zeros((HIST_RES, HIST_RES))
-        self.replace_charlie = replace_charlie
+        self.difficulty = difficulty
+        self.charlie = cv2.cvtColor(cv2.imread(os.path.join(dataset_path, "waldo.png")), cv2.COLOR_BGR2RGB)
+        self.image_list = sorted(os.listdir(os.path.join(dataset_path, "images")))
+        self.mask_list = sorted(os.listdir(os.path.join(dataset_path, "masks")))
+        self.dataset_path = dataset_path
 
     def place_charlie(self):
-
+        """
+        this method place change the charlie's position on the map.
+        """
         while True:
             x = random.randint(0, self.W - 1)
             y = random.randint(0, self.H - 1)
-            if self.mask[x][y][0] == 0:
+            if self.mask[y][x][0] == 0:
                 self.charlie_x = x
                 self.charlie_y = y
                 self.full_img = self.base_img.copy()
-                self.full_img[self.charlie_x:self.charlie_x + self.charlie.shape[0],
-                self.charlie_y:self.charlie_y + self.charlie.shape[1]] = self.charlie
+                self.full_img[self.charlie_y:self.charlie_y + self.charlie.shape[0],
+                self.charlie_x:self.charlie_x + self.charlie.shape[1]] = self.charlie
                 break
                 
 
@@ -104,8 +108,6 @@ class DummyEnv:
         del self.history
 
         self.history = np.zeros((self.nb_max_actions, 4), dtype=int)
-        self.action_dones = []
-        self.marked = []
         self.nb_actions_taken = 0
         self.z = self.max_zoom
         self.x = 0
@@ -120,26 +122,46 @@ class DummyEnv:
 
         return S
 
-    def load_env(self, img, mask, charlie):
+    def load_env(self):
+        """
+        This method read a image file and the mask (where waldo can be placed).
+        :param img: image representing the environment.
+        :param mask: image corresponding to the mask where waldo can be placed.
+        """
+        index = random.randint(0, len(self.image_list) - 1)
+        img = os.path.join(self.dataset_path, "images", self.image_list[index])
+        mask = os.path.join(self.dataset_path, "masks", self.mask_list[index])
+
         self.base_img = cv2.cvtColor(cv2.imread(img), cv2.COLOR_BGR2RGB)
         self.H, self.W, self.channels = self.base_img.shape
         self.ratio = HIST_RES / self.H
-        self.charlie = cv2.cvtColor(cv2.imread(charlie), cv2.COLOR_BGR2RGB)
         self.mask = cv2.imread(mask)
-
-    def init_env(self):
-        self.place_charlie()
-        if self.cv_cuda:
-            self.gpu_full_img = cv2.cuda_GpuMat()
-            self.gpu_full_img.upload(self.full_img)
-
+        self.max_distance = math.sqrt(self.W ** 2 + self.H ** 2)
         min_dim = np.min([self.W, self.H])
-        self.hist_img = cv2.resize(self.full_img, (HIST_RES, HIST_RES), interpolation=cv2.INTER_NEAREST)
-
         self.max_zoom = int(math.log(min_dim, 2))
         self.min_zoom = self.max_zoom - 4
 
+    def init_env(self):
+        """
+        This method is used to load the image representing the environment to the gpu
+        It place charlie on the image has well
+        """
+        if self.base_img is None or self.difficulty == 2:
+            self.load_env()
+            print("new env")
+        print("new charlie pos")
+
+        self.place_charlie()
+
+        if self.cv_cuda:
+            self.gpu_full_img = cv2.cuda_GpuMat()
+            self.gpu_full_img.upload(self.full_img)
+        self.hist_img = cv2.resize(self.full_img, (HIST_RES, HIST_RES), interpolation=cv2.INTER_NEAREST)
+
     def compute_sub_grid(self):
+        """
+        Compute the sub grid at the agent position given the x, y and z axis.
+        """
         window = self.zoom_padding << (self.z - 1)
         if self.cv_cuda:
             minX = window * self.x
@@ -150,36 +172,57 @@ class DummyEnv:
             self.gpu_sub_vision = cv2.cuda_GpuMat(self.gpu_full_img, (minY, minX, maxY, maxX))
             self.sub_vision = cv2.cuda.resize(self.sub_vision, (MODEL_RES, MODEL_RES)).download()
         else:
-            self.sub_vision = self.full_img[window * self.x:window + window * self.x, window * self.y:window + window * self.y]
+            self.sub_vision = self.full_img[window * self.y:window + window * self.y,
+                              window * self.x:window + window * self.x]
             self.sub_vision = cv2.resize(self.sub_vision, (MODEL_RES, MODEL_RES))
 
     def compute_hist(self):
+        """
+        compute an image indicating the agent position on the full image
+        """
         window = self.zoom_padding << (self.z - 1)
         self.hist = self.hist_img.copy()
-        self.hist[int(window * self.x * self.ratio):
-                  int((window + window * self.x) * self.ratio),
-                  int(window * self.y * self.ratio):
-                  int((window + window * self.y) * self.ratio)] = [255., 0., 0.]
-        self.heat_map[int(window * self.x * self.ratio):
-                  int((window + window * self.x) * self.ratio),
-                  int(window * self.y * self.ratio):
-                  int((window + window * self.y) * self.ratio)] += 1
+        self.hist[int(window * self.y * self.ratio):
+                  int((window + window * self.y) * self.ratio),
+                  int(window * self.x * self.ratio):
+                  int((window + window * self.x) * self.ratio)] = [255., 0., 0.]
+        self.heat_map[int(window * self.y * self.ratio):
+                  int((window + window * self.y) * self.ratio),
+                  int(window * self.x * self.ratio):
+                  int((window + window * self.x) * self.ratio)] += 1
 
     def get_distance_reward(self):
-        dist = math.sqrt(((self.x << (self.max_zoom - self.z)) - (self.charlie_x >> self.min_zoom - 1) ) ** 2 +
-                         ((self.y << (self.max_zoom - self.z)) - (self.charlie_y >> self.min_zoom - 1)) ** 2)
-        return dist
+        """
+        this method return the distance between the agent position and the charlie's position.
+        :return: the euclidian distance.
+        """
+        pad = self.zoom_padding << (self.z - 1)
+        return math.sqrt((self.x * pad - self.charlie_x) ** 2 + (self.y * pad - self.charlie_y) ** 2)
 
     def sub_grid_contain_charlie(self):
+        """
+        This method allow the user to know if the current subgrid contain charlie or not
+        :return: true if the sub grid contains charlie.
+        """
         window = self.zoom_padding << (self.z - 1)
         return (self.x * window <= self.charlie_x < self.x * window + window and
                 self.y * window <= self.charlie_y < self.y * window + window)
 
     def get_current_state_deep(self):
+        """
+        give to the agent 2 images (the sub image and the hist image). they are squeeze into
+        a single array.
+        :return: the current state.
+        """
         return np.append(self.sub_vision.squeeze(), self.hist.squeeze()) / 255
 
-
     def take_action(self, action):
+        """
+        This method allow the agent to take an action over the environment.
+        :param action: the number of the action that the agent has take.
+        :return: the next state, the reward, if the state is terminal and a tips of which action the agent should have
+        choose.
+        """
         action = Action(action)
 
         # before the move we must check if the agent should mark
@@ -242,8 +285,8 @@ class DummyEnv:
         elif action == Action.MARK and should_have_mark:
             self.marked_correctly = True
 
-        #reward = - self.get_distance_reward()
-        reward = -1
+        reward = - (self.get_distance_reward() / self.max_distance)
+        #reward = -1
 
         is_terminal = self.nb_max_actions <= self.nb_actions_taken
 
@@ -252,7 +295,7 @@ class DummyEnv:
             if should_have_mark:
                 is_terminal = True
                 reward = 100
-                if self.replace_charlie:
+                if self.difficulty:
                     self.init_env()
             else:
                 reward -= 10
@@ -263,8 +306,6 @@ class DummyEnv:
         """
         This function allow the user to create a gif of all the moves the
         agent has made along the episodes
-        :param environment: the environment on which the agent evolve
-        :param trajectory: the trajectory that the agent has take
         :param name: the name of the gif file
         """
         frames = []
@@ -278,10 +319,10 @@ class DummyEnv:
                 color = [0, 255, 0]
 
             window = (self.zoom_padding ** z)
-            mm[int(window * x * self.ratio):
-                      int((window + window * x) * self.ratio),
-                      int(window * y * self.ratio):
-                      int((window + window * y) * self.ratio)] = color
+            mm[int(window * y * self.ratio):
+                      int((window + window * y) * self.ratio),
+                      int(window * x * self.ratio):
+                      int((window + window * x) * self.ratio)] = color
 
             frames.append(mm)
 

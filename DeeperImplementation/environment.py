@@ -1,6 +1,5 @@
 """
-This file implement a dummy environment to train the agents on and compare them. The term "Soft" mean that the
-states of the environment are not linked to it's size (contrary to a grid world for exemple).
+This file contain the implementation of the dummy environment.
 """
 import math
 import random
@@ -18,16 +17,7 @@ class Piece(Enum):
     """
     CHARLIE = 1.
     WATER = 0.5
-    GROUND =  0.
-
-
-class Event(Enum):
-    """
-    this enum class simplify the different state of the grid
-    """
-    UNKNOWN = 0
-    VISITED = 1
-    BLOCKED = 2
+    GROUND = 0.
 
 
 class Action(Enum):
@@ -65,8 +55,8 @@ class DummyEnv:
         self.nb_actions_taken = 0
         self.nb_max_actions = nb_max_actions
         self.nb_action = 7
-
         self.size = size
+        self.max_distance = math.sqrt(self.size ** 2 + self.size ** 2)
         self.model_resolution = model_resolution
         self.max_zoom = int(math.log(size, self.model_resolution))
         self.max_move = int(self.size / self.model_resolution)
@@ -84,6 +74,9 @@ class DummyEnv:
         self.replace_env = replace_env
 
     def place_charlie(self):
+        """
+        this method place change the charlie's position on the map.
+        """
         while True:
             self.grid[self.charlie_y][self.charlie_x] = 0.5 + (random.random() / 10.)
             x = random.randint(0, self.size - 1)
@@ -120,8 +113,14 @@ class DummyEnv:
         return S
 
     def init_env(self):
+        """
+        This method is used to generate an environment.
+        """
 
         def dilate():
+            """
+            This function create lake by dilation.
+            """
             temp = np.zeros((self.size, self.size), dtype=float)
             for i in range(self.size):
                 for j in range(self.size):
@@ -150,33 +149,50 @@ class DummyEnv:
         self.place_charlie()
 
     def compute_sub_grid(self):
+        """
+        Compute the sub grid at the agent position given the x, y and z axis.
+        """
         window = self.model_resolution << (self.z - 1)
         self.sub_grid = self.grid[window * self.y:window + window * self.y, window * self.x:window + window * self.x]
 
         self.sub_vision = np.zeros((self.sub_grid.shape[0], self.sub_grid.shape[1], 3), dtype=float)
         self.sub_vision += self.sub_grid[:,:,None]
-        #img = cv2.resize(img, (10, 10), interpolation=cv2.INTER_NEAREST)
         self.sub_vision = cv2.resize(self.sub_vision, (10, 10))
 
-
     def compute_hist(self):
+        """
+        compute an image indicating the agent position on the full image
+        """
         window = self.model_resolution << (self.z - 1)
 
         self.hist = np.zeros((self.size, self.size, 3), dtype=float) + self.grid[:, :, None]
         self.hist[window * self.y:window + window * self.y, window * self.x:window + window * self.x] = [1., 0., 0.]
         self.heat_map[window * self.y:window + window * self.y, window * self.x:window + window * self.x] += 1.
-
-        #img = cv2.resize(img, (10, 10), interpolation=cv2.INTER_NEAREST)
         self.hist = cv2.resize(self.hist, (20, 20), interpolation=cv2.INTER_NEAREST)
 
     def get_distance_reward(self):
-        return math.sqrt(((self.x << (self.max_zoom - self.z)) - self.charlie_x) ** 2 +
-                         ((self.y << (self.max_zoom - self.z)) - self.charlie_y) ** 2)
+        """
+        this method return the distance between the agent position and the charlie's position.
+        :return: the euclidian distance.
+        """
+        pad = self.model_resolution << (self.z - 1)
+        return math.sqrt((self.x * pad - self.charlie_x) ** 2 + (self.y * pad - self.charlie_y) ** 2)
 
     def get_current_state_deep(self):
+        """
+        give to the agent 2 images (the sub image and the hist image). they are squeeze into
+        a single array.
+        :return: the current state.
+        """
         return np.append(self.sub_vision.squeeze(), self.hist.squeeze())
 
     def take_action(self, action):
+        """
+        This method allow the agent to take an action over the environment.
+        :param action: the number of the action that the agent has take.
+        :return: the next state, the reward, if the state is terminal and a tips of which action the agent should have
+        choose.
+        """
         action = Action(action)
 
         # before the move we must check if the agent should mark
@@ -239,8 +255,8 @@ class DummyEnv:
         elif action == Action.MARK and should_have_mark:
             self.marked_correctly = True
 
-        #reward = - self.get_distance_reward()
-        reward = -1
+        reward = - (self.get_distance_reward() / self.max_distance)
+        #reward = -1
 
         is_terminal = self.nb_max_actions <= self.nb_actions_taken
 
@@ -298,8 +314,6 @@ class DummyEnv:
         """
         This function allow the user to create a gif of all the moves the
         agent has made along the episodes
-        :param environment: the environment on which the agent evolve
-        :param trajectory: the trajectory that the agent has take
         :param name: the name of the gif file
         """
         frames = []
