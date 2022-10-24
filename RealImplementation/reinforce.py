@@ -84,7 +84,8 @@ class Reinforce:
     def __init__(self, environment, learning_rate=0.0001,
                  episodes=100, guided_episodes=100, gamma=0.05,
                  dataset_max_size=6, good_ds_max_size=20,
-                 entropy_coef=0.01, img_res=40, hist_res=40, batch_size=128):
+                 entropy_coef=0.05, img_res=40, hist_res=40, batch_size=128,
+                 early_stopping_threshold=0.0001):
 
         self.gamma = gamma
         self.environment = environment
@@ -99,6 +100,7 @@ class Reinforce:
         self.policy = PolicyNet(environment.nb_action, img_res, hist_res)
         print(self.policy)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=learning_rate)
+        self.early_stopping_threshold = early_stopping_threshold
 
     def minmax_scaling(self, x):
         return (x - self.min_r) / (self.max_r - self.min_r)
@@ -230,6 +232,11 @@ class Reinforce:
 
                 episode.set_postfix(rewards=rewards[-1], loss=sum_loss / counter,
                                     entropy=sum_entropy / counter, nb_action=st, nb_mark=nbm)
+
+                if sum_entropy / counter < self.early_stopping_threshold:
+                    print("early_stopping")
+                    break
+
 
         return losses, rewards, nb_mark, nb_action, successful_marks
 
