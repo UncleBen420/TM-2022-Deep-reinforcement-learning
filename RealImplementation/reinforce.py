@@ -83,7 +83,7 @@ class Reinforce:
 
     def __init__(self, environment, learning_rate=0.0001,
                  episodes=100, val_episode=10, guided_episodes=100, gamma=0.05,
-                 dataset_max_size=6, good_ds_max_size=20,
+                 dataset_max_size=10, good_ds_max_size=20,
                  entropy_coef=0.05, img_res=40, hist_res=40, batch_size=128,
                  early_stopping_threshold=0.0001):
 
@@ -112,7 +112,7 @@ class Reinforce:
         sum_entropy = 0.
         counter = 0.
 
-        for batch in dataset:
+        for _, batch in dataset:
 
             S, A, G = batch
             S = S.split(self.batch_size)
@@ -155,7 +155,7 @@ class Reinforce:
 
     def fit(self):
 
-        good_behaviour_dataset = []
+        dataset = []
         # for plotting
         losses = []
         rewards = []
@@ -213,27 +213,13 @@ class Reinforce:
                 self.max_r = max(torch.max(G_batch), self.max_r)
                 G_batch = self.minmax_scaling(G_batch)
 
-                if self.environment.nb_actions_taken < self.environment.nb_max_actions:
-                    good_behaviour_dataset.append((sum_episode_reward, (S_batch, A_batch, G_batch)))
-
-                if len(good_behaviour_dataset) > self.good_ds_max_size:
-                    good_behaviour_dataset = sorted(good_behaviour_dataset, key=itemgetter(0), reverse=True)
-                    good_behaviour_dataset.pop(-1)
-
-
-                dataset = []
-                if len(good_behaviour_dataset) > 0:
-                    _, good_behaviour = random.choice(good_behaviour_dataset)
-                    dataset.append(good_behaviour)
-                dataset.append((S_batch, A_batch, G_batch))
-
-                counter = 0
-                sum_loss = 0.
-                sum_entropy = 0.
-
-                #random.shuffle(combined_ds)
+                dataset.append((sum_episode_reward, (S_batch, A_batch, G_batch)))
 
                 mean_loss, mean_entropy = self.update_policy(dataset)
+
+                if len(dataset) > self.dataset_max_size:
+                    dataset = sorted(dataset, key=itemgetter(0), reverse=True)
+                    dataset.pop(-1)
 
                 losses.append(mean_loss)
 
