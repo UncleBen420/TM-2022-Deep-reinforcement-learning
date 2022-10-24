@@ -34,16 +34,16 @@ class Action(Enum):
     """
     this enum class represent all the action that the agent is allowed to do.
     """
-    LEFT = 0
-    UP = 1
-    RIGHT = 2
-    DOWN = 3
-    ZOOM1 = 4
-    ZOOM2 = 5
-    ZOOM3 = 6
-    ZOOM4 = 7
-    DEZOOM = 8
-    MARK = 9
+    ZOOM1 = 0
+    ZOOM2 = 1
+    ZOOM3 = 2
+    ZOOM4 = 3
+    DEZOOM = 4
+    MARK = 5
+    LEFT = 6
+    UP = 7
+    RIGHT = 8
+    DOWN = 9
 
 MODEL_RES = 40
 HIST_RES = 40
@@ -54,16 +54,21 @@ class Environment:
     He must not mark place where there is house.
     """
 
-    def __init__(self, dataset_path, nb_max_actions=100, difficulty=0):
+    def __init__(self, dataset_path, nb_max_actions=100, difficulty=0, only_zoom=False):
         self.base_img = None
         self.gpu_full_img = None
         self.charlie_y = 0
         self.charlie_x = 0
         self.nb_actions_taken = 0
         self.history = None
+        self.policy_hist = []
         self.nb_actions_taken = 0
         self.nb_max_actions = nb_max_actions
-        self.nb_action = 7
+        if only_zoom:
+            self.nb_action = 6
+        else:
+            self.nb_action = 10
+
         self.zoom_padding = 2
         self.z = 1
         self.x = 0
@@ -76,12 +81,12 @@ class Environment:
         self.vision = np.zeros(7, dtype=int)
         self.guided = True
         self.cv_cuda = check_cuda()
-        self.heat_map = np.zeros((HIST_RES, HIST_RES))
         self.difficulty = difficulty
         self.charlie = cv2.cvtColor(cv2.imread(os.path.join(dataset_path, "waldo.png")), cv2.COLOR_BGR2RGB)
         self.image_list = sorted(os.listdir(os.path.join(dataset_path, "images")))
         self.mask_list = sorted(os.listdir(os.path.join(dataset_path, "masks")))
         self.dataset_path = dataset_path
+        self.evaluation_mode = False
 
     def place_charlie(self):
         """
@@ -97,6 +102,12 @@ class Environment:
                 self.full_img[self.charlie_y:self.charlie_y + self.charlie.shape[0],
                 self.charlie_x:self.charlie_x + self.charlie.shape[1]] = self.charlie
                 break
+
+    def evaluate(self):
+        self.evaluation_mode = True
+        self.guided = False
+        self.heat_map = np.zeros((HIST_RES, HIST_RES))
+
                 
 
     def reload_env(self):
@@ -186,6 +197,10 @@ class Environment:
                   int((window + window * self.y) * self.ratio),
                   int(window * self.x * self.ratio):
                   int((window + window * self.x) * self.ratio)] = [255., 0., 0.]
+
+    def record(self, h):
+        self.policy_hist.append(h)
+        window = self.zoom_padding << (self.z - 1)
         self.heat_map[int(window * self.y * self.ratio):
                   int((window + window * self.y) * self.ratio),
                   int(window * self.x * self.ratio):
@@ -229,6 +244,8 @@ class Environment:
         should_have_mark = self.sub_grid_contain_charlie() and self.z < self.max_zoom - 2
 
         self.history[self.nb_actions_taken] = (self.x, self.y, self.z, action.value)
+        if self.evaluation_mode:
+            self.record((self.x, self.y, self.z, action.value))
 
         old_pos = (self.x, self.y, self.z)
         if action == Action.LEFT:

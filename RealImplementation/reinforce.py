@@ -81,7 +81,7 @@ class PolicyNet(nn.Module):
 
 class Reinforce:
 
-    def __init__(self, environment, n_actions=10, learning_rate=0.0001,
+    def __init__(self, environment, learning_rate=0.0001,
                  episodes=100, guided_episodes=100, gamma=0.05,
                  dataset_max_size=6, good_ds_max_size=20,
                  entropy_coef=0.01, img_res=40, hist_res=40, batch_size=128):
@@ -96,7 +96,7 @@ class Reinforce:
         self.min_r = 0
         self.max_r = 1
         self.guided_episodes = guided_episodes
-        self.policy = PolicyNet(n_actions, img_res, hist_res)
+        self.policy = PolicyNet(environment.nb_action, img_res, hist_res)
         print(self.policy)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=learning_rate)
 
@@ -232,3 +232,42 @@ class Reinforce:
                                     entropy=sum_entropy / counter, nb_action=st, nb_mark=nbm)
 
         return losses, rewards, nb_mark, nb_action, successful_marks
+
+    def exploit(self):
+
+        rewards = []
+        nb_action = []
+        nb_mark = []
+        successful_marks = []
+
+        with tqdm(range(self.episodes), unit="episode") as episode:
+            for i in episode:
+                sum_episode_reward = 0
+                S = self.environment.reload_env()
+                while True:
+                    # casting to torch tensor
+                    S = torch.from_numpy(S).float()
+
+                    with torch.no_grad():
+                        action_probs = self.policy(S.unsqueeze(0).to(self.policy.device)).detach().cpu().numpy()[0]
+                    A = self.policy.follow_policy(action_probs)
+                    S_prime, R, is_terminal, _ = self.environment.take_action(A)
+                    S = S_prime
+                    sum_episode_reward += R
+
+                    if is_terminal:
+                        break
+
+                rewards.append(sum_episode_reward)
+
+                nbm = self.environment.nb_mark
+                st = self.environment.nb_actions_taken
+                nb_action.append(st)
+                nb_mark.append(nbm)
+                successful_marks.append(self.environment.marked_correctly)
+
+                episode.set_postfix(rewards=rewards[-1], nb_action=st, nb_mark=nbm)
+
+        return rewards, nb_mark, nb_action, successful_marks
+
+
