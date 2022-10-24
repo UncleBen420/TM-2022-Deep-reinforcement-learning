@@ -106,6 +106,53 @@ class Reinforce:
     def minmax_scaling(self, x):
         return (x - self.min_r) / (self.max_r - self.min_r)
 
+    def update_policy(self, dataset):
+
+        sum_loss = 0.
+        sum_entropy = 0.
+        counter = 0.
+
+        for batch in dataset:
+
+            S, A, G = batch
+            S = S.split(self.batch_size)
+            A = A.split(self.batch_size)
+            G = G.split(self.batch_size)
+
+            # create batch of size edible by the gpu
+            for i in range(len(A)):
+                S_ = S[i]
+                A_ = A[i]
+                G_ = G[i]
+
+                # Calculate loss
+                self.optimizer.zero_grad()
+
+                action_probs = self.policy(S_)
+                log_probs = torch.log(action_probs)
+                selected_log_probs = G_ * torch.gather(log_probs, 1, A_.unsqueeze(1)).squeeze()
+                policy_loss = - selected_log_probs.mean()
+                # old version but not sure about it
+                # entropy = Categorical(probs=log_probs).entropy()
+                # entropy_loss = - entropy.mean()
+
+                entropy_loss = - (action_probs * log_probs).sum(dim=1).mean()
+
+                loss = policy_loss  # + self.entropy_coef * entropy_loss
+
+                # Calculate gradients
+                loss.backward()
+                # Apply gradients
+                self.optimizer.step()
+
+                sum_loss += loss.item()
+                sum_entropy += entropy_loss.item()
+                counter += 1
+
+        return sum_loss / counter, sum_entropy / counter
+
+
+
     def fit(self):
 
         good_behaviour_dataset = []
@@ -186,44 +233,9 @@ class Reinforce:
 
                 #random.shuffle(combined_ds)
 
-                for batch in dataset:
+                mean_loss, mean_entropy = self.update_policy(dataset)
 
-                    S, A, G = batch
-                    S = S.split(self.batch_size)
-                    A = A.split(self.batch_size)
-                    G = G.split(self.batch_size)
-
-                    # create batch of size edible by the gpu
-                    for i in range(len(A)):
-                        S_ = S[i]
-                        A_ = A[i]
-                        G_ = G[i]
-
-                        # Calculate loss
-                        self.optimizer.zero_grad()
-
-                        action_probs = self.policy(S_)
-                        log_probs = torch.log(action_probs)
-                        selected_log_probs = G_ * torch.gather(log_probs, 1, A_.unsqueeze(1)).squeeze()
-                        policy_loss = - selected_log_probs.mean()
-                        # old version but not sure about it
-                        #entropy = Categorical(probs=log_probs).entropy()
-                        #entropy_loss = - entropy.mean()
-
-                        entropy_loss = - (action_probs * log_probs).sum(dim=1).mean()
-
-                        loss = policy_loss + self.entropy_coef * entropy_loss
-
-                        # Calculate gradients
-                        loss.backward()
-                        # Apply gradients
-                        self.optimizer.step()
-
-                        sum_loss += loss.item()
-                        sum_entropy += entropy_loss.item()
-                        counter += 1
-
-                losses.append(sum_loss / counter)
+                losses.append(mean_loss)
 
                 nbm = self.environment.nb_mark
                 st = self.environment.nb_actions_taken
@@ -231,10 +243,10 @@ class Reinforce:
                 nb_mark.append(nbm)
                 successful_marks.append(self.environment.marked_correctly)
 
-                episode.set_postfix(rewards=rewards[-1], loss=sum_loss / counter,
-                                    entropy=sum_entropy / counter, nb_action=st, nb_mark=nbm)
+                episode.set_postfix(rewards=rewards[-1], loss=mean_loss,
+                                    entropy=mean_entropy, nb_action=st, nb_mark=nbm)
 
-                if sum_entropy / counter < self.early_stopping_threshold:
+                if mean_loss < self.early_stopping_threshold:
                     print("early_stopping")
                     break
 
