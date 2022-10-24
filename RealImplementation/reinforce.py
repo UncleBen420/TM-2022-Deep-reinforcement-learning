@@ -82,7 +82,7 @@ class PolicyNet(nn.Module):
 class Reinforce:
 
     def __init__(self, environment, learning_rate=0.0001,
-                 episodes=100, guided_episodes=100, gamma=0.05,
+                 episodes=100, val_episode=10, guided_episodes=100, gamma=0.05,
                  dataset_max_size=6, good_ds_max_size=20,
                  entropy_coef=0.05, img_res=40, hist_res=40, batch_size=128,
                  early_stopping_threshold=0.0001):
@@ -90,6 +90,7 @@ class Reinforce:
         self.gamma = gamma
         self.environment = environment
         self.episodes = episodes
+        self.val_episode = val_episode
         self.dataset_max_size = dataset_max_size
         self.good_ds_max_size = good_ds_max_size
         self.batch_size = batch_size
@@ -247,7 +248,7 @@ class Reinforce:
         nb_mark = []
         successful_marks = []
 
-        with tqdm(range(self.episodes), unit="episode") as episode:
+        with tqdm(range(self.val_episode), unit="episode") as episode:
             for i in episode:
                 sum_episode_reward = 0
                 S = self.environment.reload_env()

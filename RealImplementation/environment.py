@@ -61,7 +61,8 @@ class Environment:
         self.charlie_x = 0
         self.nb_actions_taken = 0
         self.history = None
-        self.policy_hist = []
+        self.policy_hist = {}
+        self.heat_map = np.zeros((HIST_RES, HIST_RES))
         self.nb_actions_taken = 0
         self.nb_max_actions = nb_max_actions
         if only_zoom:
@@ -102,13 +103,6 @@ class Environment:
                 self.full_img[self.charlie_y:self.charlie_y + self.charlie.shape[0],
                 self.charlie_x:self.charlie_x + self.charlie.shape[1]] = self.charlie
                 break
-
-    def evaluate(self):
-        self.evaluation_mode = True
-        self.guided = False
-        self.heat_map = np.zeros((HIST_RES, HIST_RES))
-
-                
 
     def reload_env(self):
         """
@@ -198,8 +192,11 @@ class Environment:
                   int(window * self.x * self.ratio):
                   int((window + window * self.x) * self.ratio)] = [255., 0., 0.]
 
-    def record(self, h):
-        self.policy_hist.append(h)
+    def record(self, h, a):
+        if h not in self.policy_hist.keys():
+            self.policy_hist[h] = []
+        self.policy_hist[h].append(a)
+
         window = self.zoom_padding << (self.z - 1)
         self.heat_map[int(window * self.y * self.ratio):
                   int((window + window * self.y) * self.ratio),
@@ -245,7 +242,7 @@ class Environment:
 
         self.history[self.nb_actions_taken] = (self.x, self.y, self.z, action.value)
         if self.evaluation_mode:
-            self.record((self.x, self.y, self.z, action.value))
+            self.record((self.x, self.y, self.z), action.value)
 
         old_pos = (self.x, self.y, self.z)
         if action == Action.LEFT:

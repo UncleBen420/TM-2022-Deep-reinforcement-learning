@@ -82,17 +82,17 @@ class Evaluator:
 
 if __name__ == '__main__':
 
-    ENVIRONMENT = environment.Environment("../../Dataset_waldo", nb_max_actions=1000, difficulty=0, only_zoom=True)
+    ENVIRONMENT = environment.Environment("../../Dataset_waldo", nb_max_actions=100, difficulty=0, only_zoom=True)
     ENVIRONMENT.init_env()
 
     EVALUATOR = Evaluator()
-    REIN = Reinforce(ENVIRONMENT, episodes=1000, guided_episodes=100)
+    REIN = Reinforce(ENVIRONMENT, episodes=10, guided_episodes=5)
 
     EVALUATOR.init_plot()
     EVALUATOR.fit(REIN, "Reinforce")
     EVALUATOR.show()
 
-    ENVIRONMENT.evaluate()
+    ENVIRONMENT.evaluation_mode = True
     EVALUATOR.init_plot()
     EVALUATOR.evaluate(REIN, "Reinforce")
     EVALUATOR.show()
@@ -102,8 +102,17 @@ if __name__ == '__main__':
 
     fig = plt.figure()
     ax = plt.axes(projection="3d")
-    policy = np.array(ENVIRONMENT.policy_hist)
-    ax.scatter3D(policy[:, 0], policy[:, 1], policy[:, 2], c=policy[:, 3], cmap='cividis')
+    policy = ENVIRONMENT.policy_hist
+    for key in policy.keys():
+        policy[key] = np.bincount(policy[key]).argmax()
+
+    keys = np.array(list(policy.keys()))
+    values = np.array(list(policy.values()),dtype=int)
+    labels = [action.name for action in environment.Action]
+    for i in range(len(labels)):
+        sub = keys[values == i]
+        ax.scatter3D(sub[:, 0], sub[:, 1], sub[:, 2])
+    plt.legend(labels)
     plt.show()
 
 
