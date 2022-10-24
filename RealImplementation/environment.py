@@ -39,11 +39,10 @@ class Action(Enum):
     ZOOM3 = 2
     ZOOM4 = 3
     DEZOOM = 4
-    MARK = 5
-    LEFT = 6
-    UP = 7
-    RIGHT = 8
-    DOWN = 9
+    LEFT = 5
+    UP = 6
+    RIGHT = 7
+    DOWN = 8
 
 MODEL_RES = 40
 HIST_RES = 40
@@ -66,9 +65,9 @@ class Environment:
         self.nb_actions_taken = 0
         self.nb_max_actions = nb_max_actions
         if only_zoom:
-            self.nb_action = 6
+            self.nb_action = 5
         else:
-            self.nb_action = 10
+            self.nb_action = 9
 
         self.zoom_padding = 2
         self.z = 1
@@ -294,25 +293,18 @@ class Environment:
         self.compute_hist()
         self.nb_actions_taken += 1
 
-        if self.guided and not action == Action.MARK and should_have_mark:
-            action = Action.MARK
-        elif action == Action.MARK and should_have_mark:
-            self.marked_correctly = True
-
         reward = - (self.get_distance_reward() / self.max_distance)
         #reward = -1
 
         is_terminal = self.nb_max_actions <= self.nb_actions_taken
 
-        if action == Action.MARK:
-            self.nb_mark += 1
-            if should_have_mark:
-                is_terminal = True
-                reward = 100
-                if self.difficulty:
-                    self.init_env()
-            else:
-                reward -= 10
+        if should_have_mark:
+            is_terminal = True
+            reward = 100
+            if self.difficulty:
+                self.init_env()
+        else:
+            reward -= 10
 
         return self.get_current_state_deep(), reward, is_terminal, action.value
 

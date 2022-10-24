@@ -166,10 +166,6 @@ class Reinforce:
         with tqdm(range(self.episodes), unit="episode") as episode:
             for i in episode:
 
-                if self.guided_episodes == i:
-                    print("stop guiding agent")
-                    self.environment.guided = False
-
                 S_batch = []
                 R_batch = []
                 A_batch = []
@@ -183,7 +179,7 @@ class Reinforce:
                         action_probs = self.policy(S.unsqueeze(0).to(self.policy.device)).detach().cpu().numpy()[0]
                     A = self.policy.follow_policy(action_probs)
                     S_prime, R, is_terminal, A_tips = self.environment.take_action(A)
-                    A = A_tips # the environment can give tips to the agent to help him learn
+                    #A = A_tips # the environment can give tips to the agent to help him learn
 
                     S_batch.append(S)
                     A_batch.append(A)
