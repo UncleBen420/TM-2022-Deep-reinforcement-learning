@@ -290,7 +290,7 @@ class Environment:
 
 
         #reward = - (self.get_distance_reward() / self.max_distance)
-        if (self.x, self.y, self.z, action.value) in self.history:
+        if self.history[-1] in self.history[:-1]:
             reward = -2
         else:
             reward = -1
