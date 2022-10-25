@@ -4,6 +4,7 @@ from operator import itemgetter
 import numpy as np
 import torch
 from torch import nn
+from torch.autograd import Variable
 
 from torch.distributions import Categorical
 from torchvision import models
@@ -11,7 +12,7 @@ from tqdm import tqdm
 
 
 class PolicyNet(nn.Module):
-    def __init__(self, n_actions, img_res, hist_res, n_hidden_nodes=1024, n_kernels=64, fine_tune=False):
+    def __init__(self, n_actions, img_res, hist_res, n_hidden_nodes=1024, n_kernels=64, n_layers=2,fine_tune=False):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -22,11 +23,11 @@ class PolicyNet(nn.Module):
 
         self.img_res = img_res
         self.hist_res = hist_res
+        self.n_hidden_nodes = n_hidden_nodes
         self.split_index = (self.img_res * self.img_res * 3, self.hist_res * self.hist_res * 3)
 
+        self.memory = nn.LSTM(512, n_hidden_nodes, n_layers)
         self.head = torch.nn.Sequential(
-            torch.nn.Linear(512, n_hidden_nodes),
-            torch.nn.ReLU(),
             torch.nn.Linear(n_hidden_nodes, n_actions),
             torch.nn.Softmax(dim=-1)
         )
@@ -61,11 +62,16 @@ class PolicyNet(nn.Module):
 
         self.vision_backbone.to(self.device)
         self.history_backbone.to(self.device)
+        self.memory.to(self.device)
         self.head.to(self.device)
 
         self.vision_backbone.apply(self.init_weights)
         self.history_backbone.apply(self.init_weights)
         self.head.apply(self.init_weights)
+
+    def init_lstm_state(self):
+        self.h = Variable(torch.zeros(1, 1, self.n_hidden_nodes))
+        self.c = Variable(torch.zeros(1, 1, self.n_hidden_nodes))
 
     def init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -83,6 +89,23 @@ class PolicyNet(nn.Module):
         x_img = self.vision_backbone(img)
         x_hist = self.history_backbone(hist)
         x = torch.cat((x_img, x_hist), 1)
+        x = x.unsqueeze(0)
+        _, (self.h, self.c) = self.memory(x, (self.h, self.c))
+        x = self.h.view(-1, self.n_hidden_nodes)
+        action_probs = self.head(x)
+        return action_probs
+
+    def forward_batch(self, state, batch_size):
+        h = Variable(torch.zeros(1, batch_size, self.n_hidden_nodes))
+        c = Variable(torch.zeros(1, batch_size, self.n_hidden_nodes))
+
+        img, hist = self.prepare_data(state)
+        x_img = self.vision_backbone(img)
+        x_hist = self.history_backbone(hist)
+        x = torch.cat((x_img, x_hist), 1)
+        x = x.unsqueeze(0)
+        _, (h, c) = self.memory(x, (h, c))
+        x = h.view(-1, self.n_hidden_nodes)
         action_probs = self.head(x)
         return action_probs
 
@@ -139,7 +162,7 @@ class Reinforce:
                 # Calculate loss
                 self.optimizer.zero_grad()
 
-                action_probs = self.policy(S_)
+                action_probs = self.policy.forward_batch(S_, S_.shape[0])
                 log_probs = torch.log(action_probs)
                 selected_log_probs = G_ * torch.gather(log_probs, 1, A_.unsqueeze(1)).squeeze()
                 policy_loss = selected_log_probs.mean()
@@ -182,6 +205,7 @@ class Reinforce:
                 A_batch = []
 
                 S = self.environment.reload_env()
+                self.policy.init_lstm_state() # hidden states of memory are init before the episode
                 while True:
                     # casting to torch tensor
                     S = torch.from_numpy(S).float()
@@ -221,16 +245,17 @@ class Reinforce:
                 G_batch = self.minmax_scaling(G_batch)
 
                 if self.environment.nb_actions_taken < self.environment.nb_max_actions:
-                    good_behaviour_dataset.append((sum_episode_reward, (S_batch, A_batch, G_batch)))
+                    good_behaviour_dataset.append((S_batch, A_batch, G_batch))
 
                 if len(good_behaviour_dataset) > self.good_ds_max_size:
                     #good_behaviour_dataset = sorted(good_behaviour_dataset, key=itemgetter(0), reverse=True)
                     good_behaviour_dataset.pop(-1)
 
                 dataset = []
-                if len(good_behaviour_dataset) > 0:
-                    _, good_behaviour = random.choice(good_behaviour_dataset)
-                    dataset.append(good_behaviour)
+                if len(good_behaviour_dataset) > 3:
+                    dataset = random.choices(good_behaviour_dataset, k=3)
+                else:
+                    dataset = []
                 dataset.append((S_batch, A_batch, G_batch))
 
                 if i > 100:
