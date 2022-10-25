@@ -142,7 +142,7 @@ class Environment:
         self.max_distance = math.sqrt(self.W ** 2 + self.H ** 2)
         min_dim = np.min([self.W, self.H])
         self.max_zoom = int(math.log(min_dim, 2))
-        self.min_zoom = self.max_zoom - 3
+        self.min_zoom = self.max_zoom - 4
 
     def init_env(self):
         """
@@ -213,15 +213,8 @@ class Environment:
         a single array.
         :return: the current state.
         """
-        hist = np.zeros(6)
-        hist[0] = 0. if self.x <= 0 else 1.
-        hist[1] = 0. if self.y <= 0 else 1.
-        hist[2] = 0. if (self.x + 1) >= self.W / (self.zoom_padding << (self.z - 1)) else 1.
-        hist[3] = 0. if (self.y + 1) >= self.H / (self.zoom_padding << (self.z - 1)) else 1.
-        hist[4] = 0. if self.z - 1 < self.min_zoom else 1.
-        hist[5] = 0. if self.z >= self.max_zoom else 1.
 
-        return np.append(self.sub_vision.squeeze() / 255, hist)
+        return np.array(self.sub_vision.squeeze() / 255)
 
     def take_action(self, action):
         """
@@ -290,10 +283,8 @@ class Environment:
 
 
         #reward = - (self.get_distance_reward() / self.max_distance)
-        if self.history[-1] in self.history[:-1]:
-            reward = -2
-        else:
-            reward = -1
+
+        reward = -1
 
 
         is_terminal = self.nb_max_actions <= self.nb_actions_taken
