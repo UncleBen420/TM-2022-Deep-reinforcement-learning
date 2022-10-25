@@ -111,7 +111,7 @@ class Environment:
         """
         del self.history
 
-        self.history = np.zeros((self.nb_max_actions, 4), dtype=int)
+        self.history = []
         self.nb_actions_taken = 0
         self.z = self.max_zoom
         self.x = 0
@@ -121,7 +121,6 @@ class Environment:
         self.marked_correctly = False
 
         self.compute_sub_grid()
-        self.compute_hist()
         S = self.get_current_state_deep()
 
         return S
@@ -143,7 +142,7 @@ class Environment:
         self.max_distance = math.sqrt(self.W ** 2 + self.H ** 2)
         min_dim = np.min([self.W, self.H])
         self.max_zoom = int(math.log(min_dim, 2))
-        self.min_zoom = self.max_zoom - 4
+        self.min_zoom = self.max_zoom - 3
 
     def init_env(self):
         """
@@ -180,17 +179,6 @@ class Environment:
                               window * self.x:window + window * self.x]
             self.sub_vision = cv2.resize(self.sub_vision, (MODEL_RES, MODEL_RES))
 
-    def compute_hist(self):
-        """
-        compute an image indicating the agent position on the full image
-        """
-        window = self.zoom_padding << (self.z - 1)
-        self.hist = self.hist_img.copy()
-        self.hist[int(window * self.y * self.ratio):
-                  int((window + window * self.y) * self.ratio),
-                  int(window * self.x * self.ratio):
-                  int((window + window * self.x) * self.ratio)] = [255., 0., 0.]
-
     def record(self, h, a):
         if h not in self.policy_hist.keys():
             self.policy_hist[h] = []
@@ -225,7 +213,15 @@ class Environment:
         a single array.
         :return: the current state.
         """
-        return np.append(self.sub_vision.squeeze(), self.hist.squeeze()) / 255
+        hist = np.zeros(6)
+        hist[0] = 0. if self.x <= 0 else 1.
+        hist[1] = 0. if self.y <= 0 else 1.
+        hist[2] = 0. if (self.x + 1) >= self.W / (self.zoom_padding << (self.z - 1)) else 1.
+        hist[3] = 0. if (self.y + 1) >= self.H / (self.zoom_padding << (self.z - 1)) else 1.
+        hist[4] = 0. if self.z - 1 < self.min_zoom else 1.
+        hist[5] = 0. if self.z >= self.max_zoom else 1.
+
+        return np.append(self.sub_vision.squeeze() / 255, hist)
 
     def take_action(self, action):
         """
@@ -236,7 +232,7 @@ class Environment:
         """
         action = Action(action)
 
-        self.history[self.nb_actions_taken] = (self.x, self.y, self.z, action.value)
+        self.history.append((self.x, self.y, self.z, action.value))
         if self.evaluation_mode:
             self.record((self.x, self.y, self.z), action.value)
 
@@ -281,21 +277,24 @@ class Environment:
                 self.y += 1
 
         elif action == Action.DEZOOM:
-            if not self.z + 1 >= self.max_zoom:
+            if not self.z >= self.max_zoom:
                 self.x = self.x >> 1
                 self.y = self.y >> 1
                 self.z += 1
 
         self.compute_sub_grid()
-        self.compute_hist()
         self.nb_actions_taken += 1
 
         # before the move we must check if the agent should mark
-        should_have_mark = self.sub_grid_contain_charlie() and self.z < self.max_zoom - 2
+        should_have_mark = self.sub_grid_contain_charlie() and self.z == self.min_zoom
 
 
-        reward = - (self.get_distance_reward() / self.max_distance)
-        #reward = -1
+        #reward = - (self.get_distance_reward() / self.max_distance)
+        if (self.x, self.y, self.z, action.value) in self.history:
+            reward = -2
+        else:
+            reward = -1
+
 
         is_terminal = self.nb_max_actions <= self.nb_actions_taken
 
@@ -318,10 +317,7 @@ class Environment:
             x, y, z, a = self.history[i]
             mm = self.hist_img.copy()
 
-            if a == Action.MARK:
-                color = [255, 0, 0]
-            else:
-                color = [0, 255, 0]
+            color = [0, 255, 0]
 
             window = (self.zoom_padding ** z)
             mm[int(window * y * self.ratio):

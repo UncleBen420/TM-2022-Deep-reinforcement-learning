@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 
 class PolicyNet(nn.Module):
-    def __init__(self, n_actions, img_res, hist_res, n_hidden_nodes=1024, n_kernels=64, n_layers=2,fine_tune=False):
+    def __init__(self, n_actions, img_res, hist_res, n_hidden_nodes=1024, n_kernels=64, n_layers=1,fine_tune=False):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -25,12 +25,17 @@ class PolicyNet(nn.Module):
         self.hist_res = hist_res
         self.n_hidden_nodes = n_hidden_nodes
         self.n_layers = n_layers
-        self.split_index = (self.img_res * self.img_res * 3, self.hist_res * self.hist_res * 3)
+        self.split_index = (self.img_res * self.img_res * 3, 6)
 
-        self.memory = nn.LSTM(512, n_hidden_nodes, n_layers)
+        self.memory = nn.LSTM(1952, n_hidden_nodes, n_layers)
         self.head = torch.nn.Sequential(
             torch.nn.Linear(n_hidden_nodes, n_actions),
             torch.nn.Softmax(dim=-1)
+        )
+
+        self.history_backbone = torch.nn.Sequential(
+            torch.nn.Linear(6, 16),
+            torch.nn.ReLU()
         )
 
         self.vision_backbone = torch.nn.Sequential(
@@ -40,24 +45,10 @@ class PolicyNet(nn.Module):
             torch.nn.MaxPool2d(2),
             torch.nn.Conv2d(in_channels=n_kernels, out_channels=64, kernel_size=3),
             torch.nn.ReLU(),
-            torch.nn.MaxPool2d(2),
             torch.nn.Conv2d(in_channels=64, out_channels=16, kernel_size=3),
             torch.nn.Dropout(0.2),
             torch.nn.ReLU(),
-            torch.nn.Flatten(),
-        )
-
-        self.history_backbone = torch.nn.Sequential(
-            torch.nn.Conv2d(in_channels=3, out_channels=n_kernels, kernel_size=3),
-            torch.nn.Dropout(0.2),
-            torch.nn.ReLU(),
-            torch.nn.MaxPool2d(2),
-            torch.nn.Conv2d(in_channels=n_kernels, out_channels=64, kernel_size=3),
-            torch.nn.MaxPool2d(2),
-            torch.nn.ReLU(),
-            torch.nn.Conv2d(in_channels=64, out_channels=16, kernel_size=3),
-            torch.nn.Dropout(0.2),
-            torch.nn.ReLU(),
+            torch.nn.BatchNorm2d(16),
             torch.nn.Flatten(),
         )
 
@@ -83,8 +74,8 @@ class PolicyNet(nn.Module):
     def prepare_data(self, state):
         img, hist = torch.split(state, self.split_index, dim=1)
         img = torch.reshape(img, (-1, self.img_res, self.img_res, 3))
-        hist = torch.reshape(hist, (-1, self.hist_res, self.hist_res, 3))
-        return img.permute(0, 3, 1, 2), hist.permute(0, 3, 1, 2)
+        #hist = torch.reshape(hist, (-1, self.hist_res, self.hist_res, 3))
+        return img.permute(0, 3, 1, 2), hist#.permute(0, 3, 1, 2)
 
     def forward(self, state):
         img, hist = self.prepare_data(state)
