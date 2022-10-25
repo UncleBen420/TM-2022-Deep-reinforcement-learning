@@ -142,7 +142,7 @@ class Environment:
         self.max_distance = math.sqrt(self.W ** 2 + self.H ** 2)
         min_dim = np.min([self.W, self.H])
         self.max_zoom = int(math.log(min_dim, 2))
-        self.min_zoom = self.max_zoom - 4
+        self.min_zoom = self.max_zoom - 3
 
     def init_env(self):
         """

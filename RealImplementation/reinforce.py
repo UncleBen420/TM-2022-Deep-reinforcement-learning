@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 
 class PolicyNet(nn.Module):
-    def __init__(self, n_actions, img_res, hist_res, n_hidden_nodes=256, n_kernels=64, n_layers=1,fine_tune=False):
+    def __init__(self, n_actions, img_res, hist_res, n_hidden_nodes=512, n_kernels=128, n_layers=1,fine_tune=False):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -29,6 +29,7 @@ class PolicyNet(nn.Module):
 
         self.memory = nn.LSTM(1024, n_hidden_nodes, n_layers)
         self.head = torch.nn.Sequential(
+            torch.nn.Dropout(0.2),
             torch.nn.Linear(n_hidden_nodes, n_actions),
             torch.nn.Softmax(dim=-1)
         )
@@ -47,6 +48,7 @@ class PolicyNet(nn.Module):
             torch.nn.ReLU(),
             torch.nn.MaxPool2d(2),
             torch.nn.Conv2d(in_channels=n_kernels, out_channels=64, kernel_size=3),
+            torch.nn.Dropout(0.2),
             torch.nn.ReLU(),
             torch.nn.MaxPool2d(2),
             torch.nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3),
@@ -104,10 +106,10 @@ class PolicyNet(nn.Module):
 
 class Reinforce:
 
-    def __init__(self, environment, learning_rate=0.0001,
+    def __init__(self, environment, learning_rate=0.001,
                  episodes=100, val_episode=10, guided_episodes=100, gamma=0.1,
                  dataset_max_size=10, good_ds_max_size=20,
-                 entropy_coef=0.2, img_res=32, hist_res=32, batch_size=128,
+                 entropy_coef=0.5, img_res=32, hist_res=32, batch_size=128,
                  early_stopping_threshold=0.0001):
 
         self.gamma = gamma
@@ -135,7 +137,7 @@ class Reinforce:
         sum_entropy = 0.
         counter = 0.
 
-        for batch in dataset:
+        for _, batch in dataset:
 
             S, A, G = batch
             S = S.split(self.batch_size)
@@ -154,14 +156,14 @@ class Reinforce:
                 action_probs = self.policy.forward_batch(S_, S_.shape[0])
                 log_probs = torch.log(action_probs)
                 selected_log_probs = G_ * torch.gather(log_probs, 1, A_.unsqueeze(1)).squeeze()
-                policy_loss = - selected_log_probs.mean()
+                policy_loss = - selected_log_probs.sum()
                 # old version but not sure about it
-                entropy = Categorical(probs=log_probs).entropy()
-                entropy_loss = - entropy.mean()
+                #entropy = Categorical(probs=log_probs).entropy()
+                #entropy_loss = - entropy.mean()
 
-                #entropy_loss = - (action_probs * log_probs).sum(dim=1).mean()
+                entropy_loss = (action_probs * log_probs).sum(dim=1).mean()
 
-                loss = policy_loss# + self.entropy_coef * entropy_loss
+                loss = policy_loss #+ self.entropy_coef * entropy_loss
 
                 # Calculate gradients
                 loss.backward()
@@ -233,18 +235,18 @@ class Reinforce:
                 G_batch = self.minmax_scaling(G_batch)
 
                 if self.environment.nb_actions_taken < self.environment.nb_max_actions:
-                    good_behaviour_dataset.append((S_batch, A_batch, G_batch))
+                    good_behaviour_dataset.append((sum_episode_reward, (S_batch, A_batch, G_batch)))
 
                 if len(good_behaviour_dataset) > self.good_ds_max_size:
-                    #good_behaviour_dataset = sorted(good_behaviour_dataset, key=itemgetter(0), reverse=True)
+                    good_behaviour_dataset = sorted(good_behaviour_dataset, key=itemgetter(0), reverse=True)
                     good_behaviour_dataset.pop(-1)
 
                 dataset = []
-                if len(good_behaviour_dataset) > 1:
-                    dataset = random.choices(good_behaviour_dataset, k=1)
-                else:
-                    dataset = []
-                dataset.append((S_batch, A_batch, G_batch))
+                #if len(good_behaviour_dataset) > 10:
+                #    dataset = random.choices(good_behaviour_dataset, k=10)
+                #else:
+                #    dataset = []
+                dataset.append((0, (S_batch, A_batch, G_batch)))
 
                 mean_loss, mean_entropy = self.update_policy(dataset)
 
@@ -277,6 +279,7 @@ class Reinforce:
             for i in episode:
                 sum_episode_reward = 0
                 S = self.environment.reload_env()
+                self.policy.init_lstm_state()
                 while True:
                     # casting to torch tensor
                     S = torch.from_numpy(S).float()
