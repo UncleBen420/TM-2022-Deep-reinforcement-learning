@@ -24,6 +24,7 @@ class PolicyNet(nn.Module):
         self.img_res = img_res
         self.hist_res = hist_res
         self.n_hidden_nodes = n_hidden_nodes
+        self.n_layers = n_layers
         self.split_index = (self.img_res * self.img_res * 3, self.hist_res * self.hist_res * 3)
 
         self.memory = nn.LSTM(512, n_hidden_nodes, n_layers)
@@ -67,11 +68,12 @@ class PolicyNet(nn.Module):
 
         self.vision_backbone.apply(self.init_weights)
         self.history_backbone.apply(self.init_weights)
+        self.memory.apply(self.init_weights)
         self.head.apply(self.init_weights)
 
     def init_lstm_state(self):
-        self.h = Variable(torch.zeros(1, 1, self.n_hidden_nodes))
-        self.c = Variable(torch.zeros(1, 1, self.n_hidden_nodes))
+        self.h = Variable(torch.zeros(self.n_layers, 1, self.n_hidden_nodes).to(self.device))
+        self.c = Variable(torch.zeros(self.n_layers, 1, self.n_hidden_nodes).to(self.device))
 
     def init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -80,8 +82,8 @@ class PolicyNet(nn.Module):
 
     def prepare_data(self, state):
         img, hist = torch.split(state, self.split_index, dim=1)
-        img = torch.reshape(img, (-1 , self.img_res, self.img_res, 3))
-        hist = torch.reshape(hist, (-1 , self.hist_res, self.hist_res, 3))
+        img = torch.reshape(img, (-1, self.img_res, self.img_res, 3))
+        hist = torch.reshape(hist, (-1, self.hist_res, self.hist_res, 3))
         return img.permute(0, 3, 1, 2), hist.permute(0, 3, 1, 2)
 
     def forward(self, state):
@@ -96,8 +98,8 @@ class PolicyNet(nn.Module):
         return action_probs
 
     def forward_batch(self, state, batch_size):
-        h = Variable(torch.zeros(1, batch_size, self.n_hidden_nodes))
-        c = Variable(torch.zeros(1, batch_size, self.n_hidden_nodes))
+        h = Variable(torch.zeros(self.n_layers, batch_size, self.n_hidden_nodes).to(self.device))
+        c = Variable(torch.zeros(self.n_layers, batch_size, self.n_hidden_nodes).to(self.device))
 
         img, hist = self.prepare_data(state)
         x_img = self.vision_backbone(img)
