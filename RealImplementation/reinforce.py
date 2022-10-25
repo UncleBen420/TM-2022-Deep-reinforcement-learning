@@ -25,7 +25,7 @@ class PolicyNet(nn.Module):
         self.split_index = (self.img_res * self.img_res * 3, self.hist_res * self.hist_res * 3)
 
         self.head = torch.nn.Sequential(
-            torch.nn.Linear(10368, n_hidden_nodes),
+            torch.nn.Linear(512, n_hidden_nodes),
             torch.nn.ReLU(),
             torch.nn.Linear(n_hidden_nodes, n_actions),
             torch.nn.Softmax(dim=-1)
@@ -33,21 +33,29 @@ class PolicyNet(nn.Module):
 
         self.vision_backbone = torch.nn.Sequential(
             torch.nn.Conv2d(in_channels=3, out_channels=n_kernels, kernel_size=3),
-            torch.nn.ReLU(),
             torch.nn.Dropout(0.2),
+            torch.nn.ReLU(),
+            torch.nn.MaxPool2d(2),
             torch.nn.Conv2d(in_channels=n_kernels, out_channels=64, kernel_size=3),
             torch.nn.ReLU(),
-            torch.nn.MaxPool2d(3),
+            torch.nn.MaxPool2d(2),
+            torch.nn.Conv2d(in_channels=64, out_channels=16, kernel_size=3),
+            torch.nn.Dropout(0.2),
+            torch.nn.ReLU(),
             torch.nn.Flatten(),
         )
 
         self.history_backbone = torch.nn.Sequential(
             torch.nn.Conv2d(in_channels=3, out_channels=n_kernels, kernel_size=3),
-            torch.nn.ReLU(),
             torch.nn.Dropout(0.2),
-            torch.nn.Conv2d(in_channels=n_kernels, out_channels=64, kernel_size=3),
             torch.nn.ReLU(),
-            torch.nn.MaxPool2d(3),
+            torch.nn.MaxPool2d(2),
+            torch.nn.Conv2d(in_channels=n_kernels, out_channels=64, kernel_size=3),
+            torch.nn.MaxPool2d(2),
+            torch.nn.ReLU(),
+            torch.nn.Conv2d(in_channels=64, out_channels=16, kernel_size=3),
+            torch.nn.Dropout(0.2),
+            torch.nn.ReLU(),
             torch.nn.Flatten(),
         )
 
@@ -87,7 +95,7 @@ class Reinforce:
     def __init__(self, environment, learning_rate=0.0001,
                  episodes=100, val_episode=10, guided_episodes=100, gamma=0.1,
                  dataset_max_size=10, good_ds_max_size=20,
-                 entropy_coef=0.05, img_res=32, hist_res=32, batch_size=128,
+                 entropy_coef=0.2, img_res=32, hist_res=32, batch_size=128,
                  early_stopping_threshold=0.0001):
 
         self.gamma = gamma
@@ -134,14 +142,14 @@ class Reinforce:
                 action_probs = self.policy(S_)
                 log_probs = torch.log(action_probs)
                 selected_log_probs = G_ * torch.gather(log_probs, 1, A_.unsqueeze(1)).squeeze()
-                policy_loss = - selected_log_probs.mean()
+                policy_loss = selected_log_probs.mean()
                 # old version but not sure about it
                 # entropy = Categorical(probs=log_probs).entropy()
                 # entropy_loss = - entropy.mean()
 
-                entropy_loss = (action_probs * log_probs).sum(dim=1).mean()
+                entropy_loss = - (action_probs * log_probs).sum(dim=1).mean()
 
-                loss = policy_loss + self.entropy_coef * entropy_loss
+                loss = - (policy_loss + self.entropy_coef * entropy_loss)
 
                 # Calculate gradients
                 loss.backward()
@@ -225,6 +233,9 @@ class Reinforce:
                     dataset.append(good_behaviour)
                 dataset.append((S_batch, A_batch, G_batch))
 
+                if i > 100:
+                    self.entropy_coef = 0.
+
                 mean_loss, mean_entropy = self.update_policy(dataset)
 
                 losses.append(mean_loss)
@@ -238,9 +249,9 @@ class Reinforce:
                 episode.set_postfix(rewards=rewards[-1], loss=mean_loss,
                                     entropy=mean_entropy, nb_action=st, nb_mark=nbm)
 
-                #if mean_entropy < self.early_stopping_threshold:
-                #    print("early_stopping")
-                #    break
+                if mean_entropy < self.early_stopping_threshold:
+                    print("early_stopping")
+                    break
 
 
         return losses, rewards, nb_mark, nb_action, successful_marks
