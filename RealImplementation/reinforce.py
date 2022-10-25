@@ -27,9 +27,8 @@ class PolicyNet(nn.Module):
         self.n_layers = n_layers
         self.split_index = (self.img_res * self.img_res * 3, 6)
 
+        self.memory = nn.LSTM(1024, n_hidden_nodes, n_layers)
         self.head = torch.nn.Sequential(
-            torch.nn.Linear(1024, n_hidden_nodes),
-            torch.nn.ReLU(),
             torch.nn.Linear(n_hidden_nodes, n_actions),
             torch.nn.Softmax(dim=-1)
         )
@@ -58,10 +57,12 @@ class PolicyNet(nn.Module):
 
         self.vision_backbone.to(self.device)
         self.history_backbone.to(self.device)
+        self.memory.to(self.device)
         self.head.to(self.device)
 
         self.vision_backbone.apply(self.init_weights)
         self.history_backbone.apply(self.init_weights)
+        self.memory.apply(self.init_weights)
         self.head.apply(self.init_weights)
 
     def init_weights(self, m):
@@ -69,13 +70,32 @@ class PolicyNet(nn.Module):
             torch.nn.init.xavier_uniform_(m.weight)
             m.bias.data.fill_(0.01)
 
+    def init_lstm_state(self):
+        self.h = Variable(torch.zeros(self.n_layers, 1, self.n_hidden_nodes).to(self.device))
+        self.c = Variable(torch.zeros(self.n_layers, 1, self.n_hidden_nodes).to(self.device))
+
     def prepare_data(self, state):
         return state.permute(0, 3, 1, 2)
 
     def forward(self, state):
         img = self.prepare_data(state)
-        x_img = self.vision_backbone(img)
-        action_probs = self.head(x_img)
+        x = self.vision_backbone(img)
+        x = x.unsqueeze(0)
+        _, (self.h, self.c) = self.memory(x, (self.h, self.c))
+        x = self.h.view(-1, self.n_hidden_nodes)
+        action_probs = self.head(x)
+        return action_probs
+
+    def forward_batch(self, state, batch_size):
+        h = Variable(torch.zeros(self.n_layers, batch_size, self.n_hidden_nodes).to(self.device))
+        c = Variable(torch.zeros(self.n_layers, batch_size, self.n_hidden_nodes).to(self.device))
+
+        img = self.prepare_data(state)
+        x = self.vision_backbone(img)
+        x = x.unsqueeze(0)
+        _, (self.h, self.c) = self.memory(x, (h, c))
+        x = self.h.view(-1, self.n_hidden_nodes)
+        action_probs = self.head(x)
         return action_probs
 
     def follow_policy(self, action_probs):
@@ -131,7 +151,7 @@ class Reinforce:
                 # Calculate loss
                 self.optimizer.zero_grad()
 
-                action_probs = self.policy(S_)
+                action_probs = self.policy.forward_batch(S_, S_.shape[0])
                 log_probs = torch.log(action_probs)
                 selected_log_probs = G_ * torch.gather(log_probs, 1, A_.unsqueeze(1)).squeeze()
                 policy_loss = - selected_log_probs.mean()
@@ -172,7 +192,7 @@ class Reinforce:
                 S_batch = []
                 R_batch = []
                 A_batch = []
-
+                self.policy.init_lstm_state()
                 S = self.environment.reload_env()
                 while True:
                     # casting to torch tensor
