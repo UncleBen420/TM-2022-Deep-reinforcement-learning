@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 
 class PolicyNet(nn.Module):
-    def __init__(self, n_actions, img_res, hist_res, n_hidden_nodes=512, n_kernels=128, n_layers=1,fine_tune=False):
+    def __init__(self, n_actions, img_res, hist_res, n_hidden_nodes=128, n_kernels=64, n_layers=1,fine_tune=False):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -109,7 +109,7 @@ class Reinforce:
     def __init__(self, environment, learning_rate=0.001,
                  episodes=100, val_episode=10, guided_episodes=100, gamma=0.1,
                  dataset_max_size=10, good_ds_max_size=20,
-                 entropy_coef=0.5, img_res=32, hist_res=32, batch_size=128,
+                 entropy_coef=0.001, img_res=32, hist_res=32, batch_size=128,
                  early_stopping_threshold=0.0001):
 
         self.gamma = gamma
@@ -158,10 +158,10 @@ class Reinforce:
                 selected_log_probs = G_ * torch.gather(log_probs, 1, A_.unsqueeze(1)).squeeze()
                 policy_loss = - selected_log_probs.sum()
                 # old version but not sure about it
-                #entropy = Categorical(probs=log_probs).entropy()
-                #entropy_loss = - entropy.mean()
+                entropy = Categorical(probs=log_probs).entropy()
+                entropy_loss = - entropy.mean()
 
-                entropy_loss = (action_probs * log_probs).sum(dim=1).mean()
+                #entropy_loss = (action_probs * log_probs).sum(dim=1).mean()
 
                 loss = policy_loss #+ self.entropy_coef * entropy_loss
 
@@ -242,11 +242,11 @@ class Reinforce:
                     good_behaviour_dataset.pop(-1)
 
                 dataset = []
-                #if len(good_behaviour_dataset) > 10:
-                #    dataset = random.choices(good_behaviour_dataset, k=10)
-                #else:
-                #    dataset = []
-                dataset.append((0, (S_batch, A_batch, G_batch)))
+                if len(good_behaviour_dataset) > 1:
+                    dataset = random.choices(good_behaviour_dataset, k=1)
+                else:
+                    dataset = []
+                    dataset.append((0, (S_batch, A_batch, G_batch)))
 
                 mean_loss, mean_entropy = self.update_policy(dataset)
 

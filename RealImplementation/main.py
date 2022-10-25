@@ -82,11 +82,11 @@ class Evaluator:
 
 if __name__ == '__main__':
 
-    ENVIRONMENT = environment.Environment("../../Dataset_waldo", nb_max_actions=1024, difficulty=1, only_zoom=False)
+    ENVIRONMENT = environment.Environment("../../Dataset_waldo", nb_max_actions=1000, difficulty=0, only_zoom=False)
     ENVIRONMENT.init_env()
 
     EVALUATOR = Evaluator()
-    REIN = Reinforce(ENVIRONMENT, episodes=1000)
+    REIN = Reinforce(ENVIRONMENT, episodes=500)
 
     EVALUATOR.init_plot()
     EVALUATOR.fit(REIN, "Reinforce")
