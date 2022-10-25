@@ -44,8 +44,8 @@ class Action(Enum):
     RIGHT = 7
     DOWN = 8
 
-MODEL_RES = 40
-HIST_RES = 40
+MODEL_RES = 32
+HIST_RES = 32
 
 class Environment:
     """
@@ -236,9 +236,6 @@ class Environment:
         """
         action = Action(action)
 
-        # before the move we must check if the agent should mark
-        should_have_mark = self.sub_grid_contain_charlie() and self.z < self.max_zoom - 2
-
         self.history[self.nb_actions_taken] = (self.x, self.y, self.z, action.value)
         if self.evaluation_mode:
             self.record((self.x, self.y, self.z), action.value)
@@ -293,6 +290,10 @@ class Environment:
         self.compute_hist()
         self.nb_actions_taken += 1
 
+        # before the move we must check if the agent should mark
+        should_have_mark = self.sub_grid_contain_charlie() and self.z < self.max_zoom - 2
+
+
         reward = - (self.get_distance_reward() / self.max_distance)
         #reward = -1
 
@@ -303,8 +304,6 @@ class Environment:
             reward = 100
             if self.difficulty:
                 self.init_env()
-        else:
-            reward -= 10
 
         return self.get_current_state_deep(), reward, is_terminal, action.value
 

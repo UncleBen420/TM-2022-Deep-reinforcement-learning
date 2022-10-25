@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 
 class PolicyNet(nn.Module):
-    def __init__(self, n_actions, img_res, hist_res, n_hidden_nodes=2048, n_kernels=32, fine_tune=False):
+    def __init__(self, n_actions, img_res, hist_res, n_hidden_nodes=1024, n_kernels=64, fine_tune=False):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -25,15 +25,9 @@ class PolicyNet(nn.Module):
         self.split_index = (self.img_res * self.img_res * 3, self.hist_res * self.hist_res * 3)
 
         self.head = torch.nn.Sequential(
-            torch.nn.Linear(18432, n_hidden_nodes),
+            torch.nn.Linear(10368, n_hidden_nodes),
             torch.nn.ReLU(),
-            #torch.nn.Dropout(0.2),
-            torch.nn.Linear(n_hidden_nodes, (n_hidden_nodes >> 1)),
-            torch.nn.ReLU(),
-            #torch.nn.Dropout(0.2),
-            torch.nn.Linear((n_hidden_nodes >> 1), (n_hidden_nodes >> 2)),
-            torch.nn.ReLU(),
-            torch.nn.Linear((n_hidden_nodes >> 2), n_actions),
+            torch.nn.Linear(n_hidden_nodes, n_actions),
             torch.nn.Softmax(dim=-1)
         )
 
@@ -61,6 +55,15 @@ class PolicyNet(nn.Module):
         self.history_backbone.to(self.device)
         self.head.to(self.device)
 
+        self.vision_backbone.apply(self.init_weights)
+        self.history_backbone.apply(self.init_weights)
+        self.head.apply(self.init_weights)
+
+    def init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            torch.nn.init.xavier_uniform_(m.weight)
+            m.bias.data.fill_(0.01)
+
     def prepare_data(self, state):
         img, hist = torch.split(state, self.split_index, dim=1)
         img = torch.reshape(img, (-1 , self.img_res, self.img_res, 3))
@@ -82,9 +85,9 @@ class PolicyNet(nn.Module):
 class Reinforce:
 
     def __init__(self, environment, learning_rate=0.0001,
-                 episodes=100, val_episode=10, guided_episodes=100, gamma=0.05,
+                 episodes=100, val_episode=10, guided_episodes=100, gamma=0.1,
                  dataset_max_size=10, good_ds_max_size=20,
-                 entropy_coef=0.05, img_res=40, hist_res=40, batch_size=128,
+                 entropy_coef=0.05, img_res=32, hist_res=32, batch_size=128,
                  early_stopping_threshold=0.0001):
 
         self.gamma = gamma
@@ -112,7 +115,7 @@ class Reinforce:
         sum_entropy = 0.
         counter = 0.
 
-        for _, batch in dataset:
+        for batch in dataset:
 
             S, A, G = batch
             S = S.split(self.batch_size)
@@ -136,9 +139,9 @@ class Reinforce:
                 # entropy = Categorical(probs=log_probs).entropy()
                 # entropy_loss = - entropy.mean()
 
-                entropy_loss = - (action_probs * log_probs).sum(dim=1).mean()
+                entropy_loss = (action_probs * log_probs).sum(dim=1).mean()
 
-                loss = policy_loss  # + self.entropy_coef * entropy_loss
+                loss = policy_loss + self.entropy_coef * entropy_loss
 
                 # Calculate gradients
                 loss.backward()
@@ -155,7 +158,7 @@ class Reinforce:
 
     def fit(self):
 
-        dataset = []
+        good_behaviour_dataset = []
         # for plotting
         losses = []
         rewards = []
@@ -209,13 +212,20 @@ class Reinforce:
                 self.max_r = max(torch.max(G_batch), self.max_r)
                 G_batch = self.minmax_scaling(G_batch)
 
-                dataset.append((sum_episode_reward, (S_batch, A_batch, G_batch)))
+                if self.environment.nb_actions_taken < self.environment.nb_max_actions:
+                    good_behaviour_dataset.append((sum_episode_reward, (S_batch, A_batch, G_batch)))
+
+                if len(good_behaviour_dataset) > self.good_ds_max_size:
+                    #good_behaviour_dataset = sorted(good_behaviour_dataset, key=itemgetter(0), reverse=True)
+                    good_behaviour_dataset.pop(-1)
+
+                dataset = []
+                if len(good_behaviour_dataset) > 0:
+                    _, good_behaviour = random.choice(good_behaviour_dataset)
+                    dataset.append(good_behaviour)
+                dataset.append((S_batch, A_batch, G_batch))
 
                 mean_loss, mean_entropy = self.update_policy(dataset)
-
-                if len(dataset) > self.dataset_max_size:
-                    dataset = sorted(dataset, key=itemgetter(0), reverse=True)
-                    dataset.pop(-1)
 
                 losses.append(mean_loss)
 
@@ -228,9 +238,9 @@ class Reinforce:
                 episode.set_postfix(rewards=rewards[-1], loss=mean_loss,
                                     entropy=mean_entropy, nb_action=st, nb_mark=nbm)
 
-                if mean_loss < self.early_stopping_threshold:
-                    print("early_stopping")
-                    break
+                #if mean_entropy < self.early_stopping_threshold:
+                #    print("early_stopping")
+                #    break
 
 
         return losses, rewards, nb_mark, nb_action, successful_marks
