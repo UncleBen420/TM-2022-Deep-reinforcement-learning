@@ -11,6 +11,7 @@ import imageio
 import matplotlib.pyplot as plt
 import numpy as np
 
+
 def check_cuda():
     """
     check if opencv can use cuda
@@ -44,8 +45,10 @@ class Action(Enum):
     RIGHT = 7
     DOWN = 8
 
+
 MODEL_RES = 32
-HIST_RES = 32
+HIST_RES = 200
+
 
 class Environment:
     """
@@ -53,7 +56,8 @@ class Environment:
     He must not mark place where there is house.
     """
 
-    def __init__(self, dataset_path, nb_max_actions=100, difficulty=0, only_zoom=False):
+    def __init__(self, dataset_path, nb_max_actions=100, difficulty=0, depth=False):
+        self.sub_images_queue = None
         self.base_img = None
         self.gpu_full_img = None
         self.charlie_y = 0
@@ -64,10 +68,8 @@ class Environment:
         self.heat_map = np.zeros((HIST_RES, HIST_RES))
         self.nb_actions_taken = 0
         self.nb_max_actions = nb_max_actions
-        if only_zoom:
-            self.nb_action = 5
-        else:
-            self.nb_action = 9
+        self.search_style = -1 if depth else 0
+        self.nb_action = 16
 
         self.zoom_padding = 2
         self.z = 1
@@ -110,7 +112,8 @@ class Environment:
         :return: the current state of the environment.
         """
         del self.history
-
+        del self.sub_images_queue
+        self.sub_images_queue = []
         self.history = []
         self.nb_actions_taken = 0
         self.z = self.max_zoom
@@ -120,7 +123,7 @@ class Environment:
 
         self.marked_correctly = False
 
-        self.compute_sub_grid()
+        self.get_sub_images(self.full_img)
         S = self.get_current_state_deep()
 
         return S
@@ -142,7 +145,7 @@ class Environment:
         self.max_distance = math.sqrt(self.W ** 2 + self.H ** 2)
         min_dim = np.min([self.W, self.H])
         self.max_zoom = int(math.log(min_dim, 2))
-        self.min_zoom = self.max_zoom - 3
+        self.min_zoom = self.max_zoom - 5
 
     def init_env(self):
         """
@@ -151,17 +154,17 @@ class Environment:
         """
         if self.base_img is None or self.difficulty == 2:
             self.load_env()
-            print("new env")
-        print("new charlie pos")
+
 
         self.place_charlie()
 
         if self.cv_cuda:
             self.gpu_full_img = cv2.cuda_GpuMat()
             self.gpu_full_img.upload(self.full_img)
-        self.hist_img = cv2.resize(self.full_img, (HIST_RES, HIST_RES), interpolation=cv2.INTER_NEAREST)
+        self.hist_img = cv2.resize(self.full_img, (HIST_RES, HIST_RES))
+        self.compute_mask_map()
 
-    def compute_sub_grid(self):
+    def compute_sub_grid(self, img):
         """
         Compute the sub grid at the agent position given the x, y and z axis.
         """
@@ -175,9 +178,25 @@ class Environment:
             self.gpu_sub_vision = cv2.cuda_GpuMat(self.gpu_full_img, (minY, minX, maxY, maxX))
             self.sub_vision = cv2.cuda.resize(self.sub_vision, (MODEL_RES, MODEL_RES)).download()
         else:
-            self.sub_vision = self.full_img[window * self.y:window + window * self.y,
-                              window * self.x:window + window * self.x]
-            self.sub_vision = cv2.resize(self.sub_vision, (MODEL_RES, MODEL_RES))
+            pass
+
+    def compute_mask_map(self):
+        """
+        Compute the sub grid at the agent position given the x, y and z axis.
+        """
+
+        h = int(self.H / (self.zoom_padding << (self.min_zoom - 2)))
+        w = int(self.W / (self.zoom_padding << (self.min_zoom - 2)))
+
+        mask_map = cv2.cvtColor(cv2.resize(self.mask, (h, w)), cv2.COLOR_BGR2GRAY)
+
+        kernel = np.ones((3, 3), 'uint8')
+        mask_map = cv2.erode(mask_map, kernel, iterations=1)
+
+        _, mask_map = cv2.threshold(mask_map, 10, 255, cv2.THRESH_BINARY)
+        self.ROI = np.array(np.where(mask_map == False))
+        self.ROI[0, :] *= w
+        self.ROI[1, :] *= h
 
     def record(self, h, a):
         if h not in self.policy_hist.keys():
@@ -186,26 +205,38 @@ class Environment:
 
         window = self.zoom_padding << (self.z - 1)
         self.heat_map[int(window * self.y * self.ratio):
-                  int((window + window * self.y) * self.ratio),
-                  int(window * self.x * self.ratio):
-                  int((window + window * self.x) * self.ratio)] += 1
+                      int((window + window * self.y) * self.ratio),
+        int(window * self.x * self.ratio):
+        int((window + window * self.x) * self.ratio)] += 1
 
-    def get_distance_reward(self):
-        """
-        this method return the distance between the agent position and the charlie's position.
-        :return: the euclidian distance.
-        """
-        pad = self.zoom_padding << (self.z - 1)
-        return math.sqrt((self.x * pad - self.charlie_x) ** 2 + (self.y * pad - self.charlie_y) ** 2)
+    def get_sub_images(self, img):
 
-    def sub_grid_contain_charlie(self):
+        sub_z = self.z - 1
+        sub_x = self.x << 1
+        sub_y = self.y << 1
+
+        h = int(img.shape[0] / 2)
+        w = int(img.shape[1] / 2)
+
+        self.sub_vision = cv2.resize(img, (MODEL_RES, MODEL_RES))
+        self.sub_images = []
+        for i in range(2):
+            for j in range(2):
+                x_ = sub_x + i
+                y_ = sub_y + j
+                self.sub_images.append(((x_, y_, sub_z),
+                                        (img[h * j:h + h * j, w * i: w + w * i])))
+
+    def sub_grid_contain_charlie(self,sub_img ):
         """
         This method allow the user to know if the current subgrid contain charlie or not
         :return: true if the sub grid contains charlie.
         """
-        window = self.zoom_padding << (self.z - 1)
-        return (self.x * window <= self.charlie_x < self.x * window + window and
-                self.y * window <= self.charlie_y < self.y * window + window)
+        pos, img = sub_img
+        x, y, z = pos
+        window = self.zoom_padding << (z - 1)
+        return (x * window <= self.charlie_x < x * window + window and
+                y * window <= self.charlie_y < y * window + window)
 
     def get_current_state_deep(self):
         """
@@ -216,6 +247,36 @@ class Environment:
 
         return np.array(self.sub_vision.squeeze() / 255)
 
+    def roi_in_sub_image(self, sub_img):
+        pos, img = sub_img
+        x, y, z = pos
+
+        window = self.zoom_padding << (z - 1)
+        for i in range(self.ROI.shape[1]):
+            if (x * window <= self.ROI[1][i] < x * window + window and
+                    y * window <= self.ROI[0][i] < y * window + window):
+                return True
+
+        return False
+
+    def action_selection(self, action, counter=0):
+        if action >= 1:
+            reward = self.action_selection(action >> 1, counter + 1)
+        else:
+            reward = 0.
+
+        if action % 2:
+            pos, _ = self.sub_images[counter]
+            _, _, z = pos
+            reward += 2 if self.roi_in_sub_image(self.sub_images[counter]) else -1
+            charlie_detected = self.sub_grid_contain_charlie(self.sub_images[counter]) and z <= self.min_zoom + 2
+            self.nb_mark += charlie_detected
+            reward += 10 if charlie_detected else 0
+            if z >= self.min_zoom and not charlie_detected:
+                self.sub_images_queue.append(self.sub_images[counter])
+
+        return reward
+
     def take_action(self, action):
         """
         This method allow the agent to take an action over the environment.
@@ -223,79 +284,32 @@ class Environment:
         :return: the next state, the reward, if the state is terminal and a tips of which action the agent should have
         choose.
         """
-        action = Action(action)
 
-        self.history.append((self.x, self.y, self.z, action.value))
-        if self.evaluation_mode:
-            self.record((self.x, self.y, self.z), action.value)
+        self.history.append((self.x, self.y, self.z, action))
+        # if self.evaluation_mode:
+        #    self.record((self.x, self.y, self.z), action)
+        # check if we are at the maximum zoom possible
+        reward = self.action_selection(action)
 
-        old_pos = (self.x, self.y, self.z)
-        if action == Action.LEFT:
-            self.x -= 0 if self.x <= 0 else 1
-        elif action == Action.UP:
-            self.y -= 0 if self.y <= 0 else 1
-        elif action == Action.RIGHT:
-            self.x += 0 if (self.x + 1) >= self.W / (self.zoom_padding << (self.z - 1)) else 1
-        elif action == Action.DOWN:
-            self.y += 0 if (self.y + 1) >= self.H / (self.zoom_padding << (self.z - 1)) else 1
-        elif action == Action.ZOOM1:
-            if not self.z - 1 < self.min_zoom:
-                self.z -= 1
-                self.x = self.x << 1
-                self.y = self.y << 1
+        is_terminal = len(self.sub_images_queue) <= 0
+        if not is_terminal:
+            position, img = self.sub_images_queue.pop(self.search_style)
+            self.x, self.y, self.z = position
 
-        elif action == Action.ZOOM2:
-            if not self.z - 1 < self.min_zoom:
-                self.z -= 1
-                self.x = self.x << 1
-                self.y = self.y << 1
-
-                self.x += 1
-
-        elif action == Action.ZOOM3:
-            if not self.z - 1 < self.min_zoom:
-                self.z -= 1
-                self.x = self.x << 1
-                self.y = self.y << 1
-
-                self.y += 1
-
-        elif action == Action.ZOOM4:
-            if not self.z - 1 < self.min_zoom:
-                self.z -= 1
-                self.x = self.x << 1
-                self.y = self.y << 1
-
-                self.x += 1
-                self.y += 1
-
-        elif action == Action.DEZOOM:
-            if not self.z >= self.max_zoom:
-                self.x = self.x >> 1
-                self.y = self.y >> 1
-                self.z += 1
-
-        self.compute_sub_grid()
-        self.nb_actions_taken += 1
+            self.get_sub_images(img)
+            reward += 1
+            self.nb_actions_taken += 1
 
         # before the move we must check if the agent should mark
-        should_have_mark = self.sub_grid_contain_charlie() and self.z == self.min_zoom
+        # should_have_mark = self.sub_grid_contain_charlie() and self.z == self.min_zoom
 
+        # if should_have_mark:
+        #    is_terminal = True
+        #    reward = 100
+        #    if self.difficulty:
+        #       self.init_env()
 
-        #reward = - (self.get_distance_reward() / self.max_distance)
-
-        reward = -1
-
-
-        is_terminal = self.nb_max_actions <= self.nb_actions_taken
-
-        if should_have_mark:
-            is_terminal = True
-            reward = 100
-            if self.difficulty:
-                self.init_env()
-
-        return self.get_current_state_deep(), reward, is_terminal, action.value
+        return self.get_current_state_deep(), reward, is_terminal
 
     def get_gif_trajectory(self, name):
         """
@@ -312,9 +326,9 @@ class Environment:
 
             window = (self.zoom_padding ** z)
             mm[int(window * y * self.ratio):
-                      int((window + window * y) * self.ratio),
-                      int(window * x * self.ratio):
-                      int((window + window * x) * self.ratio)] = color
+               int((window + window * y) * self.ratio),
+            int(window * x * self.ratio):
+            int((window + window * x) * self.ratio)] = color
 
             frames.append(mm)
 

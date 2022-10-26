@@ -82,38 +82,38 @@ class Evaluator:
 
 if __name__ == '__main__':
 
-    ENVIRONMENT = environment.Environment("../../Dataset_waldo", nb_max_actions=1000, difficulty=0, only_zoom=False)
+    ENVIRONMENT = environment.Environment("../../Dataset_waldo", nb_max_actions=1000, difficulty=0, depth=False)
     ENVIRONMENT.init_env()
 
     EVALUATOR = Evaluator()
-    REIN = Reinforce(ENVIRONMENT, episodes=500)
+    REIN = Reinforce(ENVIRONMENT, episodes=1000)
 
     EVALUATOR.init_plot()
     EVALUATOR.fit(REIN, "Reinforce")
     EVALUATOR.show()
 
-    ENVIRONMENT.evaluation_mode = True
-    EVALUATOR.init_plot()
-    EVALUATOR.evaluate(REIN, "Reinforce")
-    EVALUATOR.show()
+    #ENVIRONMENT.evaluation_mode = True
+    #EVALUATOR.init_plot()
+    #EVALUATOR.evaluate(REIN, "Reinforce")
+    #EVALUATOR.show()
 
-    plt.imshow(ENVIRONMENT.heat_map)
-    plt.show()
+    #plt.imshow(ENVIRONMENT.heat_map)
+    #plt.show()
 
-    fig = plt.figure()
-    ax = plt.axes(projection="3d")
-    policy = ENVIRONMENT.policy_hist
-    for key in policy.keys():
-        policy[key] = np.bincount(policy[key]).argmax()
+    #fig = plt.figure()
+    #ax = plt.axes(projection="3d")
+    #policy = ENVIRONMENT.policy_hist
+    #for key in policy.keys():
+    #    policy[key] = np.bincount(policy[key]).argmax()
 
-    keys = np.array(list(policy.keys()))
-    values = np.array(list(policy.values()),dtype=int)
-    labels = [action.name for action in environment.Action]
-    for i in range(len(labels)):
-        sub = keys[values == i]
-        ax.scatter3D(sub[:, 0], sub[:, 1], sub[:, 2])
-    plt.legend(labels)
-    plt.show()
+    #keys = np.array(list(policy.keys()))
+    #values = np.array(list(policy.values()),dtype=int)
+    #labels = [action.name for action in environment.Action]
+    #for i in range(len(labels)):
+    #    sub = keys[values == i]
+    #    ax.scatter3D(sub[:, 0], sub[:, 1], sub[:, 2])
+    #plt.legend(labels)
+    #plt.show()
 
 
     ENVIRONMENT.get_gif_trajectory("haha.gif")

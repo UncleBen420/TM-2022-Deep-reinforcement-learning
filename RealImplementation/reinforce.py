@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 
 class PolicyNet(nn.Module):
-    def __init__(self, n_actions, img_res, hist_res, n_hidden_nodes=128, n_kernels=64, n_layers=1,fine_tune=False):
+    def __init__(self, n_actions, img_res, hist_res, n_hidden_nodes=512, n_kernels=64, n_layers=1,fine_tune=False):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -23,24 +23,18 @@ class PolicyNet(nn.Module):
 
         self.img_res = img_res
         self.hist_res = hist_res
-        self.n_hidden_nodes = n_hidden_nodes
-        self.n_layers = n_layers
-        self.split_index = (self.img_res * self.img_res * 3, 6)
 
-        self.memory = nn.LSTM(1024, n_hidden_nodes, n_layers)
         self.head = torch.nn.Sequential(
-            torch.nn.Dropout(0.2),
-            torch.nn.Linear(n_hidden_nodes, n_actions),
+            torch.nn.Linear(1024, n_hidden_nodes),
+            torch.nn.ReLU(),
+            torch.nn.Linear(n_hidden_nodes, (n_hidden_nodes >> 1)),
+            torch.nn.ReLU(),
+            torch.nn.Linear((n_hidden_nodes >> 1), n_actions),
             torch.nn.Softmax(dim=-1)
         )
 
         self.task_head = torch.nn.Sequential(
 
-        )
-
-        self.history_backbone = torch.nn.Sequential(
-            torch.nn.Linear(6, 16),
-            torch.nn.ReLU()
         )
 
         self.vision_backbone = torch.nn.Sequential(
@@ -58,13 +52,9 @@ class PolicyNet(nn.Module):
         )
 
         self.vision_backbone.to(self.device)
-        self.history_backbone.to(self.device)
-        self.memory.to(self.device)
         self.head.to(self.device)
 
         self.vision_backbone.apply(self.init_weights)
-        self.history_backbone.apply(self.init_weights)
-        self.memory.apply(self.init_weights)
         self.head.apply(self.init_weights)
 
     def init_weights(self, m):
@@ -72,31 +62,12 @@ class PolicyNet(nn.Module):
             torch.nn.init.xavier_uniform_(m.weight)
             m.bias.data.fill_(0.01)
 
-    def init_lstm_state(self):
-        self.h = Variable(torch.zeros(self.n_layers, 1, self.n_hidden_nodes).to(self.device))
-        self.c = Variable(torch.zeros(self.n_layers, 1, self.n_hidden_nodes).to(self.device))
-
     def prepare_data(self, state):
         return state.permute(0, 3, 1, 2)
 
     def forward(self, state):
         img = self.prepare_data(state)
         x = self.vision_backbone(img)
-        x = x.unsqueeze(0)
-        _, (self.h, self.c) = self.memory(x, (self.h, self.c))
-        x = self.h.view(-1, self.n_hidden_nodes)
-        action_probs = self.head(x)
-        return action_probs
-
-    def forward_batch(self, state, batch_size):
-        h = Variable(torch.zeros(self.n_layers, batch_size, self.n_hidden_nodes).to(self.device))
-        c = Variable(torch.zeros(self.n_layers, batch_size, self.n_hidden_nodes).to(self.device))
-
-        img = self.prepare_data(state)
-        x = self.vision_backbone(img)
-        x = x.unsqueeze(0)
-        _, (self.h, self.c) = self.memory(x, (h, c))
-        x = self.h.view(-1, self.n_hidden_nodes)
         action_probs = self.head(x)
         return action_probs
 
@@ -106,10 +77,10 @@ class PolicyNet(nn.Module):
 
 class Reinforce:
 
-    def __init__(self, environment, learning_rate=0.001,
+    def __init__(self, environment, learning_rate=0.0001,
                  episodes=100, val_episode=10, guided_episodes=100, gamma=0.1,
                  dataset_max_size=10, good_ds_max_size=20,
-                 entropy_coef=0.001, img_res=32, hist_res=32, batch_size=128,
+                 entropy_coef=0.01, img_res=32, hist_res=32, batch_size=128,
                  early_stopping_threshold=0.0001):
 
         self.gamma = gamma
@@ -153,15 +124,15 @@ class Reinforce:
                 # Calculate loss
                 self.optimizer.zero_grad()
 
-                action_probs = self.policy.forward_batch(S_, S_.shape[0])
+                action_probs = self.policy(S_)
                 log_probs = torch.log(action_probs)
                 selected_log_probs = G_ * torch.gather(log_probs, 1, A_.unsqueeze(1)).squeeze()
-                policy_loss = - selected_log_probs.sum()
+                policy_loss = - selected_log_probs.mean()
                 # old version but not sure about it
-                entropy = Categorical(probs=log_probs).entropy()
-                entropy_loss = - entropy.mean()
+                #entropy = Categorical(probs=log_probs).entropy()
+                #entropy_loss = - entropy.mean()
 
-                #entropy_loss = (action_probs * log_probs).sum(dim=1).mean()
+                entropy_loss = - (action_probs * log_probs).sum(dim=1).mean()
 
                 loss = policy_loss #+ self.entropy_coef * entropy_loss
 
@@ -194,7 +165,6 @@ class Reinforce:
                 S_batch = []
                 R_batch = []
                 A_batch = []
-                self.policy.init_lstm_state()
                 S = self.environment.reload_env()
                 while True:
                     # casting to torch tensor
@@ -202,9 +172,9 @@ class Reinforce:
 
                     with torch.no_grad():
                         action_probs = self.policy(S.unsqueeze(0).to(self.policy.device)).detach().cpu().numpy()[0]
+
                     A = self.policy.follow_policy(action_probs)
-                    S_prime, R, is_terminal, A_tips = self.environment.take_action(A)
-                    #A = A_tips # the environment can give tips to the agent to help him learn
+                    S_prime, R, is_terminal = self.environment.take_action(A)
 
                     S_batch.append(S)
                     A_batch.append(A)
@@ -233,17 +203,18 @@ class Reinforce:
                 self.min_r = min(torch.min(G_batch), self.min_r)
                 self.max_r = max(torch.max(G_batch), self.max_r)
                 G_batch = self.minmax_scaling(G_batch)
+                m = np.mean((sum_episode_reward, self.environment.nb_actions_taken))
+                v = np.var((0, self.environment.nb_actions_taken))
 
-                if self.environment.nb_actions_taken < self.environment.nb_max_actions:
-                    good_behaviour_dataset.append((sum_episode_reward, (S_batch, A_batch, G_batch)))
+                good_behaviour_dataset.append((m , (S_batch, A_batch, G_batch)))
 
                 if len(good_behaviour_dataset) > self.good_ds_max_size:
                     good_behaviour_dataset = sorted(good_behaviour_dataset, key=itemgetter(0), reverse=True)
                     good_behaviour_dataset.pop(-1)
 
                 dataset = []
-                if len(good_behaviour_dataset) > 1:
-                    dataset = random.choices(good_behaviour_dataset, k=1)
+                if len(good_behaviour_dataset) > 3:
+                    dataset = random.choices(good_behaviour_dataset, k=3)
                 else:
                     dataset = []
                     dataset.append((0, (S_batch, A_batch, G_batch)))
@@ -279,7 +250,6 @@ class Reinforce:
             for i in episode:
                 sum_episode_reward = 0
                 S = self.environment.reload_env()
-                self.policy.init_lstm_state()
                 while True:
                     # casting to torch tensor
                     S = torch.from_numpy(S).float()
