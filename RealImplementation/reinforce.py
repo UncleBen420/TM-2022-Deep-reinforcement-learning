@@ -20,6 +20,7 @@ class PolicyNet(nn.Module):
         print("RUNNING ON {0}".format(self.device))
 
         self.action_space = np.arange(n_actions)
+        self.task_space = np.arange(2)
 
         self.img_res = img_res
         self.hist_res = hist_res
@@ -34,7 +35,12 @@ class PolicyNet(nn.Module):
         )
 
         self.task_head = torch.nn.Sequential(
-
+            torch.nn.Linear(1024, n_hidden_nodes),
+            torch.nn.ReLU(),
+            torch.nn.Linear(n_hidden_nodes, (n_hidden_nodes >> 1)),
+            torch.nn.ReLU(),
+            torch.nn.Linear((n_hidden_nodes >> 1), 2),
+            torch.nn.Softmax(dim=-1)
         )
 
         self.vision_backbone = torch.nn.Sequential(
@@ -68,17 +74,20 @@ class PolicyNet(nn.Module):
     def forward(self, state):
         img = self.prepare_data(state)
         x = self.vision_backbone(img)
+        task_probs = self.task_head(x)
         action_probs = self.head(x)
-        return action_probs
+        return action_probs, task_probs
 
-    def follow_policy(self, action_probs):
-        return np.random.choice(self.action_space, p=action_probs)
+    def follow_policy(self, action_probs, task_probs):
+        action_probs = action_probs.detach().cpu().numpy()[0]
+        task_probs = task_probs.detach().cpu().numpy()[0]
+        return np.random.choice(self.action_space, p=action_probs), np.random.choice(self.task_space, p=task_probs)
 
 
 class Reinforce:
 
     def __init__(self, environment, learning_rate=0.0001,
-                 episodes=100, val_episode=10, guided_episodes=100, gamma=0.1,
+                 episodes=100, val_episode=10, guided_episodes=50, gamma=0.1,
                  dataset_max_size=10, good_ds_max_size=20,
                  entropy_coef=0.01, img_res=32, hist_res=32, batch_size=128,
                  early_stopping_threshold=0.0001):
@@ -105,49 +114,61 @@ class Reinforce:
     def update_policy(self, dataset):
 
         sum_loss = 0.
-        sum_entropy = 0.
+        sum_loss_task = 0.
         counter = 0.
 
         for _, batch in dataset:
 
-            S, A, G = batch
+            S, A, G, A_task, G_task = batch
             S = S.split(self.batch_size)
             A = A.split(self.batch_size)
             G = G.split(self.batch_size)
+            A_task = A_task.split(self.batch_size)
+            G_task = G_task.split(self.batch_size)
 
             # create batch of size edible by the gpu
             for i in range(len(A)):
                 S_ = S[i]
                 A_ = A[i]
                 G_ = G[i]
+                A_task_ = A_task[i]
+                G_task_ = G_task[i]
 
                 # Calculate loss
                 self.optimizer.zero_grad()
 
-                action_probs = self.policy(S_)
+                action_probs, task_probs = self.policy(S_)
                 log_probs = torch.log(action_probs)
+                task_log_probs = torch.log(task_probs)
                 selected_log_probs = G_ * torch.gather(log_probs, 1, A_.unsqueeze(1)).squeeze()
-                policy_loss = - selected_log_probs.mean()
-                # old version but not sure about it
-                #entropy = Categorical(probs=log_probs).entropy()
-                #entropy_loss = - entropy.mean()
+                selected_task_log_probs = G_task_ * torch.gather(task_log_probs, 1, A_task_.unsqueeze(1)).squeeze()
+                policy_loss_task = - selected_task_log_probs.mean()
+                policy_loss = - selected_log_probs.mean() + 0.001 * policy_loss_task
 
                 entropy_loss = - (action_probs * log_probs).sum(dim=1).mean()
 
-                loss = policy_loss #+ self.entropy_coef * entropy_loss
+                loss = policy_loss  #+ self.entropy_coef * entropy_loss
 
                 # Calculate gradients
-                loss.backward()
+                policy_loss_task.backward(retain_graph=True)
+                policy_loss.backward()
+
                 # Apply gradients
                 self.optimizer.step()
 
-                sum_loss += loss.item()
-                sum_entropy += entropy_loss.item()
+                sum_loss += policy_loss.item()
+                sum_loss_task += policy_loss_task.item()
                 counter += 1
 
-        return sum_loss / counter, sum_entropy / counter
+        return sum_loss / counter, sum_loss_task / counter
 
-
+    def cumulated_reward(self, rewards, t):
+        Gt = 0
+        pw = 0
+        for R in rewards[t:]:
+            Gt += self.gamma ** pw * R
+            pw += 1
+        return Gt
 
     def fit(self):
 
@@ -162,23 +183,44 @@ class Reinforce:
         with tqdm(range(self.episodes), unit="episode") as episode:
             for i in episode:
 
+                # ------------------------------------------------------------------------------------------------------
+                # EPISODE PREPARATION
+                # ------------------------------------------------------------------------------------------------------
+
+                if i == self.guided_episodes:
+                    print("STOP GUIDING AGENT")
+                    self.environment.guided = False
+
                 S_batch = []
                 R_batch = []
                 A_batch = []
+                R_task_batch = []
+                A_task_batch = []
                 S = self.environment.reload_env()
+                first_action = True
+
+                # ------------------------------------------------------------------------------------------------------
+                # EPISODE REALISATION
+                # ------------------------------------------------------------------------------------------------------
                 while True:
+
                     # casting to torch tensor
                     S = torch.from_numpy(S).float()
 
                     with torch.no_grad():
-                        action_probs = self.policy(S.unsqueeze(0).to(self.policy.device)).detach().cpu().numpy()[0]
-
-                    A = self.policy.follow_policy(action_probs)
-                    S_prime, R, is_terminal = self.environment.take_action(A)
+                        action_probs, action_probs_task = self.policy(S.unsqueeze(0).to(self.policy.device))
+                    A, A_task = self.policy.follow_policy(action_probs, action_probs_task)
+                    # Exploratory start for guided episodes to ensure the agent don't fall into a local minimum
+                    if i <= self.guided_episodes and first_action:
+                        A = 15
+                    first_action = False
+                    S_prime, R, is_terminal, R_task, A_task = self.environment.take_action(A, A_task)
 
                     S_batch.append(S)
                     A_batch.append(A)
                     R_batch.append(R)
+                    A_task_batch.append(A_task)
+                    R_task_batch.append(R_task)
 
                     S = S_prime
 
@@ -186,56 +228,64 @@ class Reinforce:
                         break
 
                 sum_episode_reward = np.sum(R_batch)
+                sum_task_reward = np.sum(R_task_batch)
                 rewards.append(sum_episode_reward)
-
+                # ------------------------------------------------------------------------------------------------------
+                # CUMULATED REWARD CALCULATION
+                # ------------------------------------------------------------------------------------------------------
                 G_batch = []
+                G_task_batch = []
                 for t in range(len(R_batch)):
-                    Gt = 0
-                    pw = 0
-                    for R in R_batch[t:]:
-                        Gt += self.gamma ** pw * R
-                        pw += 1
-                    G_batch.append(Gt)
+                    G_batch.append(self.cumulated_reward(R_batch, t))
+                    G_task_batch.append(self.cumulated_reward(R_task_batch, t))
 
+                # ------------------------------------------------------------------------------------------------------
+                # BATCH PREPARATION
+                # ------------------------------------------------------------------------------------------------------
                 S_batch = torch.stack(S_batch).to(self.policy.device)
                 A_batch = torch.LongTensor(A_batch).to(self.policy.device)
                 G_batch = torch.FloatTensor(G_batch).to(self.policy.device)
+                A_task_batch = torch.LongTensor(A_task_batch).to(self.policy.device)
+                G_task_batch = torch.FloatTensor(G_task_batch).to(self.policy.device)
                 self.min_r = min(torch.min(G_batch), self.min_r)
                 self.max_r = max(torch.max(G_batch), self.max_r)
                 G_batch = self.minmax_scaling(G_batch)
-                m = np.mean((sum_episode_reward, self.environment.nb_actions_taken))
-                v = np.var((0, self.environment.nb_actions_taken))
+                m = np.mean((sum_episode_reward, self.environment.nb_actions_taken)) + 5. * sum_task_reward
 
-                good_behaviour_dataset.append((m , (S_batch, A_batch, G_batch)))
+                # ------------------------------------------------------------------------------------------------------
+                # DATASET PREPARATION
+                # ------------------------------------------------------------------------------------------------------
+                good_behaviour_dataset.append((m , (S_batch, A_batch, G_batch, A_task_batch, G_task_batch)))
 
                 if len(good_behaviour_dataset) > self.good_ds_max_size:
                     good_behaviour_dataset = sorted(good_behaviour_dataset, key=itemgetter(0), reverse=True)
                     good_behaviour_dataset.pop(-1)
-
-                dataset = []
                 if len(good_behaviour_dataset) > 3:
                     dataset = random.choices(good_behaviour_dataset, k=3)
                 else:
                     dataset = []
-                    dataset.append((0, (S_batch, A_batch, G_batch)))
+                    dataset.append((0, (S_batch, A_batch, G_batch, A_task_batch, G_task_batch)))
 
-                mean_loss, mean_entropy = self.update_policy(dataset)
+                # ------------------------------------------------------------------------------------------------------
+                # MODEL OPTIMISATION
+                # ------------------------------------------------------------------------------------------------------
+                mean_loss, mean_loss_task = self.update_policy(dataset)
+
+                # ------------------------------------------------------------------------------------------------------
+                # METRICS RECORD
+                # ------------------------------------------------------------------------------------------------------
 
                 losses.append(mean_loss)
-
                 nbm = self.environment.nb_mark
+                nbmc = self.environment.marked_correctly
                 st = self.environment.nb_actions_taken
                 nb_action.append(st)
                 nb_mark.append(nbm)
-                successful_marks.append(self.environment.marked_correctly)
+                successful_marks.append(nbmc)
 
                 episode.set_postfix(rewards=rewards[-1], loss=mean_loss,
-                                    entropy=mean_entropy, nb_action=st, nb_mark=nbm)
-
-                #if mean_entropy < self.early_stopping_threshold:
-                #    print("early_stopping")
-                #    break
-
+                                    loss_task=mean_loss_task, nb_action=st, nb_mark=nbm,
+                                    marked_correctly=nbmc, task_reward=sum_task_reward)
 
         return losses, rewards, nb_mark, nb_action, successful_marks
 
@@ -255,24 +305,25 @@ class Reinforce:
                     S = torch.from_numpy(S).float()
 
                     with torch.no_grad():
-                        action_probs = self.policy(S.unsqueeze(0).to(self.policy.device)).detach().cpu().numpy()[0]
-                    A = self.policy.follow_policy(action_probs)
-                    S_prime, R, is_terminal, _ = self.environment.take_action(A)
+                        action_probs, action_probs_task = self.policy(S.unsqueeze(0).to(self.policy.device))
+                    A, A_task = self.policy.follow_policy(action_probs, action_probs_task)
+                    S_prime, R, is_terminal, R_task, A_task = self.environment.take_action(A, A_task)
+
                     S = S_prime
                     sum_episode_reward += R
-
                     if is_terminal:
                         break
 
                 rewards.append(sum_episode_reward)
 
                 nbm = self.environment.nb_mark
+                nbmc = self.environment.marked_correctly
                 st = self.environment.nb_actions_taken
                 nb_action.append(st)
                 nb_mark.append(nbm)
                 successful_marks.append(self.environment.marked_correctly)
 
-                episode.set_postfix(rewards=rewards[-1], nb_action=st, nb_mark=nbm)
+                episode.set_postfix(rewards=rewards[-1], nb_action=st, marked_correctly=nbmc, nb_mark=nbm)
 
         return rewards, nb_mark, nb_action, successful_marks
 

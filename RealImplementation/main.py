@@ -3,7 +3,7 @@ The goal of this program is to allow user to evaluate 3 different RL algorithm o
 """
 import numpy as np
 from matplotlib import pyplot as plt
-
+import cv2
 import environment
 from reinforce import Reinforce
 
@@ -82,7 +82,7 @@ class Evaluator:
 
 if __name__ == '__main__':
 
-    ENVIRONMENT = environment.Environment("../../Dataset_waldo", nb_max_actions=1000, difficulty=0, depth=False)
+    ENVIRONMENT = environment.Environment("../../Dataset_waldo", nb_max_actions=1000, difficulty=1, depth=False)
     ENVIRONMENT.init_env()
 
     EVALUATOR = Evaluator()
@@ -92,28 +92,26 @@ if __name__ == '__main__':
     EVALUATOR.fit(REIN, "Reinforce")
     EVALUATOR.show()
 
-    #ENVIRONMENT.evaluation_mode = True
-    #EVALUATOR.init_plot()
-    #EVALUATOR.evaluate(REIN, "Reinforce")
-    #EVALUATOR.show()
+    ENVIRONMENT.evaluation_mode = True
+    EVALUATOR.init_plot()
+    EVALUATOR.evaluate(REIN, "Reinforce")
+    EVALUATOR.show()
 
-    #plt.imshow(ENVIRONMENT.heat_map)
+    #plt.imshow()
     #plt.show()
 
-    #fig = plt.figure()
-    #ax = plt.axes(projection="3d")
-    #policy = ENVIRONMENT.policy_hist
-    #for key in policy.keys():
-    #    policy[key] = np.bincount(policy[key]).argmax()
+    fig = plt.figure()
+    ax = plt.axes(projection="3d")
+    policy = ENVIRONMENT.heat_map
+    x, y = np.meshgrid(np.linspace(0, 1, policy.shape[1]), np.linspace(0, 1, policy.shape[2]))
+    vmin = np.max(policy)
+    vmax = np.max(policy)
 
-    #keys = np.array(list(policy.keys()))
-    #values = np.array(list(policy.values()),dtype=int)
-    #labels = [action.name for action in environment.Action]
-    #for i in range(len(labels)):
-    #    sub = keys[values == i]
-    #    ax.scatter3D(sub[:, 0], sub[:, 1], sub[:, 2])
+    for i in range(policy.shape[0] - 1):
+        cset = ax.contourf(x, y, policy[i], 100, zdir='z', offset=i * 50, alpha=0.3)
+    cset = ax.contourf(x, y, cv2.cvtColor(ENVIRONMENT.hist_img, cv2.COLOR_BGR2GRAY), 100, zdir='z', cmap='Greys_r',offset=0)
     #plt.legend(labels)
-    #plt.show()
+    plt.show()
 
 
     ENVIRONMENT.get_gif_trajectory("haha.gif")

@@ -21,33 +21,8 @@ def check_cuda():
                if len(ci) > 0 and re.search(r'(nvidia*:?)|(cuda*:)|(cudnn*:)', ci.lower()) is not None]
     return len(cv_info) > 0
 
-
-class Event(Enum):
-    """
-    this enum class simplify the different state of the grid
-    """
-    UNKNOWN = 0
-    VISITED = 1
-    BLOCKED = 2
-
-
-class Action(Enum):
-    """
-    this enum class represent all the action that the agent is allowed to do.
-    """
-    ZOOM1 = 0
-    ZOOM2 = 1
-    ZOOM3 = 2
-    ZOOM4 = 3
-    DEZOOM = 4
-    LEFT = 5
-    UP = 6
-    RIGHT = 7
-    DOWN = 8
-
-
 MODEL_RES = 32
-HIST_RES = 200
+HIST_RES = 100
 
 
 class Environment:
@@ -65,7 +40,7 @@ class Environment:
         self.nb_actions_taken = 0
         self.history = None
         self.policy_hist = {}
-        self.heat_map = np.zeros((HIST_RES, HIST_RES))
+        self.heat_map = np.zeros((6, HIST_RES, HIST_RES))
         self.nb_actions_taken = 0
         self.nb_max_actions = nb_max_actions
         self.search_style = -1 if depth else 0
@@ -126,6 +101,9 @@ class Environment:
         self.get_sub_images(self.full_img)
         S = self.get_current_state_deep()
 
+        if self.difficulty > 0:
+            self.place_charlie()
+
         return S
 
     def load_env(self):
@@ -155,7 +133,6 @@ class Environment:
         if self.base_img is None or self.difficulty == 2:
             self.load_env()
 
-
         self.place_charlie()
 
         if self.cv_cuda:
@@ -184,7 +161,6 @@ class Environment:
         """
         Compute the sub grid at the agent position given the x, y and z axis.
         """
-
         h = int(self.H / (self.zoom_padding << (self.min_zoom - 2)))
         w = int(self.W / (self.zoom_padding << (self.min_zoom - 2)))
 
@@ -198,13 +174,13 @@ class Environment:
         self.ROI[0, :] *= w
         self.ROI[1, :] *= h
 
-    def record(self, h, a):
-        if h not in self.policy_hist.keys():
-            self.policy_hist[h] = []
-        self.policy_hist[h].append(a)
+    def record(self):
+        #if h not in self.policy_hist.keys():
+        #    self.policy_hist[h] = []
+        #self.policy_hist[h].append(a)
 
         window = self.zoom_padding << (self.z - 1)
-        self.heat_map[int(window * self.y * self.ratio):
+        self.heat_map[self.z - self.min_zoom][int(window * self.y * self.ratio):
                       int((window + window * self.y) * self.ratio),
         int(window * self.x * self.ratio):
         int((window + window * self.x) * self.ratio)] += 1
@@ -227,16 +203,14 @@ class Environment:
                 self.sub_images.append(((x_, y_, sub_z),
                                         (img[h * j:h + h * j, w * i: w + w * i])))
 
-    def sub_grid_contain_charlie(self,sub_img ):
+    def sub_grid_contain_charlie(self ):
         """
         This method allow the user to know if the current subgrid contain charlie or not
         :return: true if the sub grid contains charlie.
         """
-        pos, img = sub_img
-        x, y, z = pos
-        window = self.zoom_padding << (z - 1)
-        return (x * window <= self.charlie_x < x * window + window and
-                y * window <= self.charlie_y < y * window + window)
+        window = self.zoom_padding << (self.z - 1)
+        return (self.x * window <= self.charlie_x < self.x * window + window and
+                self.y * window <= self.charlie_y < self.y * window + window)
 
     def get_current_state_deep(self):
         """
@@ -269,15 +243,12 @@ class Environment:
             pos, _ = self.sub_images[counter]
             _, _, z = pos
             reward += 2 if self.roi_in_sub_image(self.sub_images[counter]) else -1
-            charlie_detected = self.sub_grid_contain_charlie(self.sub_images[counter]) and z <= self.min_zoom + 2
-            self.nb_mark += charlie_detected
-            reward += 10 if charlie_detected else 0
-            if z >= self.min_zoom and not charlie_detected:
+            if z >= self.min_zoom:
                 self.sub_images_queue.append(self.sub_images[counter])
 
         return reward
 
-    def take_action(self, action):
+    def take_action(self, action, task_action):
         """
         This method allow the agent to take an action over the environment.
         :param action: the number of the action that the agent has take.
@@ -286,10 +257,21 @@ class Environment:
         """
 
         self.history.append((self.x, self.y, self.z, action))
-        # if self.evaluation_mode:
-        #    self.record((self.x, self.y, self.z), action)
+        if self.evaluation_mode:
+            self.record()
+
         # check if we are at the maximum zoom possible
         reward = self.action_selection(action)
+
+        should_mark = self.sub_grid_contain_charlie() and self.z <= self.min_zoom + 2
+
+        reward_task = 0.02
+        if task_action or (should_mark and self.guided):
+            reward_task = 1. if should_mark else 0.
+            if task_action == 1 and should_mark :
+                self.marked_correctly += 1
+            task_action = 1
+            self.nb_mark += 1
 
         is_terminal = len(self.sub_images_queue) <= 0
         if not is_terminal:
@@ -300,16 +282,7 @@ class Environment:
             reward += 1
             self.nb_actions_taken += 1
 
-        # before the move we must check if the agent should mark
-        # should_have_mark = self.sub_grid_contain_charlie() and self.z == self.min_zoom
-
-        # if should_have_mark:
-        #    is_terminal = True
-        #    reward = 100
-        #    if self.difficulty:
-        #       self.init_env()
-
-        return self.get_current_state_deep(), reward, is_terminal
+        return self.get_current_state_deep(), reward, is_terminal, reward_task, task_action
 
     def get_gif_trajectory(self, name):
         """
