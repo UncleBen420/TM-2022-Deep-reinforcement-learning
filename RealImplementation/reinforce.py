@@ -231,8 +231,9 @@ class Reinforce:
                 # MODEL OPTIMISATION
                 # ------------------------------------------------------------------------------------------------------
                 mean_loss = 0.
-                if len(good_behaviour_dataset) > 3:
+                if len(good_behaviour_dataset) > 10:
                     dataset = random.choices(good_behaviour_dataset, k=3)
+                    dataset.append((0, (S_batch, A_batch, G_batch)))
                     mean_loss += self.update_policy(dataset)
 
                 # ------------------------------------------------------------------------------------------------------
