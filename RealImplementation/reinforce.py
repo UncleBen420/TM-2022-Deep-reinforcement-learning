@@ -119,7 +119,7 @@ class Reinforce:
                 # Calculate loss
                 self.optimizer.zero_grad()
 
-                action_probs = self.policy.action_prob(S_)
+                action_probs = self.policy(S_)
                 log_probs = torch.log(action_probs)
                 selected_log_probs = G_ * torch.gather(log_probs, 1, A_.unsqueeze(1)).squeeze()
                 policy_loss = - selected_log_probs.mean()
