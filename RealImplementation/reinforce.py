@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 
 class PolicyNet(nn.Module):
-    def __init__(self, n_actions, img_res, hist_res, n_hidden_nodes=512, n_kernels=64, n_layers=1,fine_tune=False):
+    def __init__(self, n_actions, img_res, hist_res, n_hidden_nodes=700, n_kernels=100, n_layers=1,fine_tune=False):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -70,12 +70,6 @@ class PolicyNet(nn.Module):
     def follow_policy(self, action_probs):
         action_probs = action_probs.detach().cpu().numpy()[0]
         return np.random.choice(self.action_space, p=action_probs)
-
-    def action_prob(self, state):
-        img = self.prepare_data(state)
-        x = self.vision_backbone(img)
-        return self.head(x)
-
 
 class Reinforce:
 
@@ -277,7 +271,7 @@ class Reinforce:
                     with torch.no_grad():
                         action_probs = self.policy(S.unsqueeze(0).to(self.policy.device))
                     # no need to explore, so we select the most probable action
-                    A = np.argmax(action_probs)
+                    A = np.argmax(action_probs.detach().cpu().numpy()[0])
                     S_prime, R, is_terminal = self.environment.take_action(A)
 
                     S = S_prime
