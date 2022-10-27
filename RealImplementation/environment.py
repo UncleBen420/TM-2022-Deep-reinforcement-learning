@@ -21,7 +21,7 @@ def check_cuda():
                if len(ci) > 0 and re.search(r'(nvidia*:?)|(cuda*:)|(cudnn*:)', ci.lower()) is not None]
     return len(cv_info) > 0
 
-MODEL_RES = 32
+MODEL_RES = 50
 HIST_RES = 100
 
 
@@ -37,7 +37,6 @@ class Environment:
         self.gpu_full_img = None
         self.charlie_y = 0
         self.charlie_x = 0
-        self.nb_actions_taken = 0
         self.history = None
         self.policy_hist = {}
         self.heat_map = np.zeros((6, HIST_RES, HIST_RES))
@@ -270,7 +269,7 @@ class Environment:
             self.record()
 
         # check if we are at the maximum zoom possible
-        reward, is_terminal  = self.action_selection(action)
+        reward, is_terminal = self.action_selection(action)
 
         if len(self.sub_images_queue) <= 0:
             # for the case if charlie is detected at the last step

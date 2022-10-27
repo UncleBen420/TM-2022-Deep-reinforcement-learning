@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 
 class PolicyNet(nn.Module):
-    def __init__(self, n_actions, img_res, hist_res, n_hidden_nodes=700, n_kernels=100, n_layers=1,fine_tune=False):
+    def __init__(self, n_actions, img_res, hist_res, n_hidden_nodes=700, n_kernels=128, n_layers=1,fine_tune=False):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -37,13 +37,14 @@ class PolicyNet(nn.Module):
             torch.nn.Conv2d(in_channels=3, out_channels=n_kernels, kernel_size=3),
             torch.nn.ReLU(),
             torch.nn.MaxPool2d(2),
+            torch.nn.Conv2d(in_channels=n_kernels, out_channels=n_kernels, kernel_size=3),
+            torch.nn.ReLU(),
+            torch.nn.BatchNorm2d(n_kernels),
+            torch.nn.MaxPool2d(2),
             torch.nn.Conv2d(in_channels=n_kernels, out_channels=64, kernel_size=3),
             torch.nn.Dropout(0.2),
             torch.nn.ReLU(),
             torch.nn.MaxPool2d(2),
-            torch.nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3),
-            torch.nn.ReLU(),
-            torch.nn.BatchNorm2d(64),
             torch.nn.Flatten(),
         )
 
