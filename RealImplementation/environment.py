@@ -99,8 +99,10 @@ class Environment:
         self.nb_mark = 0
 
         self.marked_correctly = False
-
-        self.get_sub_images(self.full_img)
+        if self.cv_cuda:
+            self.get_sub_images(self.gpu_full_img)
+        else:
+            self.get_sub_images(self.full_img)
         S = self.get_current_state_deep()
 
         return S
@@ -140,22 +142,6 @@ class Environment:
         self.hist_img = cv2.resize(self.full_img, (HIST_RES, HIST_RES))
         self.compute_mask_map()
 
-    def compute_sub_grid(self, img):
-        """
-        Compute the sub grid at the agent position given the x, y and z axis.
-        """
-        window = self.zoom_padding << (self.z - 1)
-        if self.cv_cuda:
-            minX = window * self.x
-            maxY = window + window * self.y
-            maxX = window + window * self.x
-            minY = window * self.y
-
-            self.gpu_sub_vision = cv2.cuda_GpuMat(self.gpu_full_img, (minY, minX, maxY, maxX))
-            self.sub_vision = cv2.cuda.resize(self.sub_vision, (MODEL_RES, MODEL_RES)).download()
-        else:
-            pass
-
     def compute_mask_map(self):
         """
         Compute the sub grid at the agent position given the x, y and z axis.
@@ -181,6 +167,10 @@ class Environment:
         int((window + window * self.x) * self.ratio)] += 1
 
     def get_sub_images(self, img):
+        if self.cv_cuda:
+            self.sub_vision = cv2.cuda.resize(img, (MODEL_RES, MODEL_RES)).download()
+        else:
+            self.sub_vision = cv2.resize(img, (MODEL_RES, MODEL_RES))
 
         sub_z = self.z - 1
         sub_x = self.x << 1
@@ -188,15 +178,27 @@ class Environment:
 
         h = int(img.shape[0] / 2)
         w = int(img.shape[1] / 2)
-
-        self.sub_vision = cv2.resize(img, (MODEL_RES, MODEL_RES))
         self.sub_images = []
-        for i in range(2):
-            for j in range(2):
-                x_ = sub_x + i
-                y_ = sub_y + j
-                self.sub_images.append(((x_, y_, sub_z),
-                                        (img[h * j:h + h * j, w * i: w + w * i])))
+        if self.cv_cuda:
+            for i in range(2):
+                for j in range(2):
+                    x_ = sub_x + i
+                    y_ = sub_y + j
+
+                    minY = h * j
+                    minX = w * i
+                    maxY = h + h * j
+                    maxX = w + w * i
+
+                    gpu = cv2.cuda_GpuMat(img, (minY, minX, maxY, maxX))
+                    self.sub_images.append(((x_, y_, sub_z), gpu))
+        else:
+            for i in range(2):
+                for j in range(2):
+                    x_ = sub_x + i
+                    y_ = sub_y + j
+                    self.sub_images.append(((x_, y_, sub_z),
+                                            (img[h * j:h + h * j, w * i: w + w * i])))
 
     def sub_img_contain_charlie(self, x, y, z):
         """
