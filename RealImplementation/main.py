@@ -51,8 +51,8 @@ class Evaluator:
         self.axs[0][1].set_ylabel('nb')
 
         base = np.linspace(0.,1, len(good))
-        self.axs[1][1].plot(base, good, label=name, color='g', lw=4)
-        self.axs[1][1].plot(base, bad, label=name, color='r', lw=4)
+        self.axs[1][1].plot(base, good, label=name, color='g')
+        self.axs[1][1].plot(base, bad, label=name, color='r')
         self.axs[1][1].fill_between(base, bad, good, color='g', alpha=.5)
         self.axs[1][1].fill_between(base, bad, 0, color='r', alpha=.5)
         self.axs[1][1].set_title('good action choice over bad')
@@ -116,11 +116,11 @@ class Evaluator:
 
 if __name__ == '__main__':
 
-    ENVIRONMENT = environment.Environment("../../Dataset_waldo", nb_max_actions=1000, difficulty=1, depth=False)
+    ENVIRONMENT = environment.Environment("../../Dataset_waldo", difficulty=1, depth=True)
     ENVIRONMENT.init_env()
 
     EVALUATOR = Evaluator()
-    REIN = Reinforce(ENVIRONMENT, episodes=1500, val_episode=100)
+    REIN = Reinforce(ENVIRONMENT, episodes=1000, val_episode=100)
     DUMMY = DummyAgent(ENVIRONMENT, val_episode=100)
 
     EVALUATOR.init_plot()

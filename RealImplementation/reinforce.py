@@ -20,7 +20,6 @@ class PolicyNet(nn.Module):
         print("RUNNING ON {0}".format(self.device))
 
         self.action_space = np.arange(n_actions)
-        self.task_space = np.arange(2)
 
         self.img_res = img_res
         self.hist_res = hist_res
@@ -31,15 +30,6 @@ class PolicyNet(nn.Module):
             torch.nn.Linear(n_hidden_nodes, (n_hidden_nodes >> 1)),
             torch.nn.ReLU(),
             torch.nn.Linear((n_hidden_nodes >> 1), n_actions),
-            torch.nn.Softmax(dim=-1)
-        )
-
-        self.task_head = torch.nn.Sequential(
-            torch.nn.Linear(1024, n_hidden_nodes),
-            torch.nn.ReLU(),
-            torch.nn.Linear(n_hidden_nodes, (n_hidden_nodes >> 1)),
-            torch.nn.ReLU(),
-            torch.nn.Linear((n_hidden_nodes >> 1), 2),
             torch.nn.Softmax(dim=-1)
         )
 
@@ -74,19 +64,12 @@ class PolicyNet(nn.Module):
     def forward(self, state):
         img = self.prepare_data(state)
         x = self.vision_backbone(img)
-        task_probs = self.task_head(x)
         action_probs = self.head(x)
-        return action_probs, task_probs
+        return action_probs
 
-    def follow_policy(self, action_probs, task_probs):
+    def follow_policy(self, action_probs):
         action_probs = action_probs.detach().cpu().numpy()[0]
-        task_probs = task_probs.detach().cpu().numpy()[0]
-        return np.random.choice(self.action_space, p=action_probs), np.random.choice(self.task_space, p=task_probs)
-
-    def action_prob_task(self, state):
-        img = self.prepare_data(state)
-        x = self.vision_backbone(img)
-        return self.task_head(x)
+        return np.random.choice(self.action_space, p=action_probs)
 
     def action_prob(self, state):
         img = self.prepare_data(state)
@@ -97,7 +80,7 @@ class PolicyNet(nn.Module):
 class Reinforce:
 
     def __init__(self, environment, learning_rate=0.00006,
-                 episodes=100, val_episode=10, guided_episodes=50, gamma=0.2,
+                 episodes=100, val_episode=10, guided_episodes=10, gamma=0.2,
                  dataset_max_size=10, good_ds_max_size=20,
                  entropy_coef=0.2, img_res=32, hist_res=32, batch_size=128,
                  early_stopping_threshold=0.0001):
@@ -120,42 +103,6 @@ class Reinforce:
 
     def minmax_scaling(self, x):
         return (x - self.min_r) / (self.max_r - self.min_r)
-
-    def update_policy_task(self, dataset):
-        sum_loss_task = 0.
-        counter = 0.
-
-        for _, batch in dataset:
-
-            S, A, G = batch
-            S = S.split(self.batch_size)
-            A = A.split(self.batch_size)
-            G = G.split(self.batch_size)
-
-            # create batch of size edible by the gpu
-            for i in range(len(A)):
-                S_ = S[i]
-                A_ = A[i]
-                G_ = G[i]
-
-                # Calculate loss
-                self.optimizer.zero_grad()
-
-                task_probs = self.policy.action_prob_task(S_)
-                task_log_probs = torch.log(task_probs)
-                selected_task_log_probs = G_ * torch.gather(task_log_probs, 1, A_.unsqueeze(1)).squeeze()
-                policy_loss_task = - selected_task_log_probs.mean()
-
-                # Calculate gradients
-                policy_loss_task.backward()
-
-                # Apply gradients
-                self.optimizer.step()
-
-                sum_loss_task += policy_loss_task.item()
-                counter += 1
-
-        return sum_loss_task / counter
 
     def update_policy(self, dataset):
 
@@ -202,7 +149,6 @@ class Reinforce:
     def fit(self):
 
         good_behaviour_dataset = []
-        good_behaviour_task_dataset = []
         # for plotting
         losses = []
         rewards = []
@@ -226,10 +172,7 @@ class Reinforce:
                 S_batch = []
                 R_batch = []
                 A_batch = []
-                R_task_batch = []
-                A_task_batch = []
                 S = self.environment.reload_env()
-                first_action = True
 
                 # ------------------------------------------------------------------------------------------------------
                 # EPISODE REALISATION
@@ -240,19 +183,16 @@ class Reinforce:
                     S = torch.from_numpy(S).float()
 
                     with torch.no_grad():
-                        action_probs, action_probs_task = self.policy(S.unsqueeze(0).to(self.policy.device))
-                    A, A_task = self.policy.follow_policy(action_probs, action_probs_task)
+                        action_probs = self.policy(S.unsqueeze(0).to(self.policy.device))
+                    A = self.policy.follow_policy(action_probs)
                     # Exploratory start for guided episodes to ensure the agent don't fall into a local minimum
-                    if i <= self.guided_episodes and first_action:
+                    if i <= self.guided_episodes:
                         A = 15
-                    first_action = False
-                    S_prime, R, is_terminal, R_task, A_task = self.environment.take_action(A, A_task)
+                    S_prime, R, is_terminal = self.environment.take_action(A)
 
                     S_batch.append(S)
                     A_batch.append(A)
                     R_batch.append(R)
-                    A_task_batch.append(A_task)
-                    R_task_batch.append(R_task)
 
                     S = S_prime
 
@@ -260,16 +200,13 @@ class Reinforce:
                         break
 
                 sum_episode_reward = np.sum(R_batch)
-                sum_task_reward = np.sum(R_task_batch)
                 rewards.append(sum_episode_reward)
                 # ------------------------------------------------------------------------------------------------------
                 # CUMULATED REWARD CALCULATION
                 # ------------------------------------------------------------------------------------------------------
                 G_batch = []
-                G_task_batch = []
                 for t in range(len(R_batch)):
                     G_batch.append(self.cumulated_reward(R_batch, t))
-                    G_task_batch.append(self.cumulated_reward(R_task_batch, t))
 
                 # ------------------------------------------------------------------------------------------------------
                 # BATCH PREPARATION
@@ -277,41 +214,26 @@ class Reinforce:
                 S_batch = torch.stack(S_batch).to(self.policy.device)
                 A_batch = torch.LongTensor(A_batch).to(self.policy.device)
                 G_batch = torch.FloatTensor(G_batch).to(self.policy.device)
-                A_task_batch = torch.LongTensor(A_task_batch).to(self.policy.device)
-                G_task_batch = torch.FloatTensor(G_task_batch).to(self.policy.device)
                 self.min_r = min(torch.min(G_batch), self.min_r)
                 self.max_r = max(torch.max(G_batch), self.max_r)
                 G_batch = self.minmax_scaling(G_batch)
-                m = np.mean((sum_episode_reward, self.environment.nb_actions_taken))
 
                 # ------------------------------------------------------------------------------------------------------
                 # DATASET PREPARATION
                 # ------------------------------------------------------------------------------------------------------
-                good_behaviour_dataset.append((self.environment.nb_good_choice,
-                                               (S_batch, A_batch, G_batch)))
-                good_behaviour_task_dataset.append((self.environment.marked_correctly,
-                                                    (S_batch, A_task_batch, G_task_batch)))
+                good_behaviour_dataset.append((sum_episode_reward, (S_batch, A_batch, G_batch)))
 
                 if len(good_behaviour_dataset) > self.good_ds_max_size:
                     good_behaviour_dataset = sorted(good_behaviour_dataset, key=itemgetter(0), reverse=True)
-                    good_behaviour_task_dataset = sorted(good_behaviour_task_dataset, key=itemgetter(0), reverse=True)
                     good_behaviour_dataset.pop(-1)
-                    good_behaviour_task_dataset.pop(-1)
-
-
 
                 # ------------------------------------------------------------------------------------------------------
                 # MODEL OPTIMISATION
                 # ------------------------------------------------------------------------------------------------------
                 mean_loss = 0.
-                mean_loss_task = 0.
                 if len(good_behaviour_dataset) > 3:
                     dataset = random.choices(good_behaviour_dataset, k=3)
                     mean_loss += self.update_policy(dataset)
-
-                if len(good_behaviour_task_dataset) > 3:
-                    dataset = random.choices(good_behaviour_task_dataset, k=1)
-                    mean_loss_task += self.update_policy_task(dataset)
 
                 # ------------------------------------------------------------------------------------------------------
                 # METRICS RECORD
@@ -330,8 +252,7 @@ class Reinforce:
                 bad_choices.append(bt / (st + 0.00001))
 
                 episode.set_postfix(rewards=rewards[-1], loss=mean_loss,
-                                    loss_task=mean_loss_task, nb_action=st, nb_mark=nbm,
-                                    marked_correctly=nbmc, task_reward=sum_task_reward)
+                                    nb_action=st, nb_mark=nbm, marked_correctly=nbmc)
 
         return losses, rewards, nb_mark, nb_action, successful_marks, good_choices, bad_choices
 
@@ -353,11 +274,10 @@ class Reinforce:
                     S = torch.from_numpy(S).float()
 
                     with torch.no_grad():
-                        action_probs, action_probs_task = self.policy(S.unsqueeze(0).to(self.policy.device))
+                        action_probs = self.policy(S.unsqueeze(0).to(self.policy.device))
                     # no need to explore, so we select the most probable action
                     A = np.argmax(action_probs)
-                    A_task = np.argmax(action_probs_task)
-                    S_prime, R, is_terminal, R_task, A_task = self.environment.take_action(A, A_task)
+                    S_prime, R, is_terminal = self.environment.take_action(A)
 
                     S = S_prime
                     sum_episode_reward += R

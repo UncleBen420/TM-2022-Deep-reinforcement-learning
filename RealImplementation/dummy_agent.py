@@ -22,14 +22,13 @@ class DummyAgent:
         with tqdm(range(self.val_episode), unit="episode") as episode:
             for i in episode:
                 sum_episode_reward = 0
-                S = self.environment.reload_env()
+                self.environment.reload_env()
                 while True:
                     # casting to torch tensor
 
                     A, A_task = random.randint(0, self.action_space - 1), random.randint(0, 1)
-                    S_prime, R, is_terminal, R_task, A_task = self.environment.take_action(A, A_task)
+                    S_prime, R, is_terminal = self.environment.take_action(A)
 
-                    S = S_prime
                     sum_episode_reward += R
                     if is_terminal:
                         break
