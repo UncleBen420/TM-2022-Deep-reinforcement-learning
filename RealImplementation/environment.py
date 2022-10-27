@@ -91,6 +91,8 @@ class Environment:
         self.sub_images_queue = []
         self.history = []
         self.nb_actions_taken = 0
+        self.nb_bad_choice = 0
+        self.nb_good_choice = 0
         self.z = self.max_zoom
         self.x = 0
         self.y = 0
@@ -175,10 +177,6 @@ class Environment:
         self.ROI[1, :] *= h
 
     def record(self):
-        #if h not in self.policy_hist.keys():
-        #    self.policy_hist[h] = []
-        #self.policy_hist[h].append(a)
-
         window = self.zoom_padding << (self.z - 1)
         self.heat_map[self.z - self.min_zoom][int(window * self.y * self.ratio):
                       int((window + window * self.y) * self.ratio),
@@ -209,8 +207,11 @@ class Environment:
         :return: true if the sub grid contains charlie.
         """
         window = self.zoom_padding << (self.z - 1)
-        return (self.x * window <= self.charlie_x < self.x * window + window and
-                self.y * window <= self.charlie_y < self.y * window + window)
+        return ((self.x * window <= self.charlie_x < self.x * window + window or
+                self.x * window <= self.charlie_x + self.charlie.shape[1] < self.x * window + window)
+                and
+                (self.y * window <= self.charlie_y < self.y * window + window or
+                self.y * window <= self.charlie_y + self.charlie.shape[0]))
 
     def get_current_state_deep(self):
         """
@@ -242,7 +243,12 @@ class Environment:
         if action % 2:
             pos, _ = self.sub_images[counter]
             _, _, z = pos
-            reward += 2 if self.roi_in_sub_image(self.sub_images[counter]) else -1
+            in_roi = self.roi_in_sub_image(self.sub_images[counter])
+            reward += 2 if in_roi else -1
+            if in_roi:
+                self.nb_good_choice += 1
+            else:
+                self.nb_bad_choice += 1
             if z >= self.min_zoom:
                 self.sub_images_queue.append(self.sub_images[counter])
 
@@ -263,12 +269,12 @@ class Environment:
         # check if we are at the maximum zoom possible
         reward = self.action_selection(action)
 
-        should_mark = self.sub_grid_contain_charlie() and self.z <= self.min_zoom + 2
+        should_mark = self.sub_grid_contain_charlie() and self.z <= self.min_zoom + 1
 
-        reward_task = 0.02
+        reward_task = 0.3
         if task_action or (should_mark and self.guided):
             reward_task = 1. if should_mark else 0.
-            if task_action == 1 and should_mark :
+            if task_action == 1 and should_mark:
                 self.marked_correctly += 1
             task_action = 1
             self.nb_mark += 1

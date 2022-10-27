@@ -83,13 +83,23 @@ class PolicyNet(nn.Module):
         task_probs = task_probs.detach().cpu().numpy()[0]
         return np.random.choice(self.action_space, p=action_probs), np.random.choice(self.task_space, p=task_probs)
 
+    def action_prob_task(self, state):
+        img = self.prepare_data(state)
+        x = self.vision_backbone(img)
+        return self.task_head(x)
+
+    def action_prob(self, state):
+        img = self.prepare_data(state)
+        x = self.vision_backbone(img)
+        return self.head(x)
+
 
 class Reinforce:
 
-    def __init__(self, environment, learning_rate=0.0001,
-                 episodes=100, val_episode=10, guided_episodes=50, gamma=0.1,
+    def __init__(self, environment, learning_rate=0.00006,
+                 episodes=100, val_episode=10, guided_episodes=50, gamma=0.2,
                  dataset_max_size=10, good_ds_max_size=20,
-                 entropy_coef=0.01, img_res=32, hist_res=32, batch_size=128,
+                 entropy_coef=0.2, img_res=32, hist_res=32, batch_size=128,
                  early_stopping_threshold=0.0001):
 
         self.gamma = gamma
@@ -111,56 +121,75 @@ class Reinforce:
     def minmax_scaling(self, x):
         return (x - self.min_r) / (self.max_r - self.min_r)
 
-    def update_policy(self, dataset):
-
-        sum_loss = 0.
+    def update_policy_task(self, dataset):
         sum_loss_task = 0.
         counter = 0.
 
         for _, batch in dataset:
 
-            S, A, G, A_task, G_task = batch
+            S, A, G = batch
             S = S.split(self.batch_size)
             A = A.split(self.batch_size)
             G = G.split(self.batch_size)
-            A_task = A_task.split(self.batch_size)
-            G_task = G_task.split(self.batch_size)
 
             # create batch of size edible by the gpu
             for i in range(len(A)):
                 S_ = S[i]
                 A_ = A[i]
                 G_ = G[i]
-                A_task_ = A_task[i]
-                G_task_ = G_task[i]
 
                 # Calculate loss
                 self.optimizer.zero_grad()
 
-                action_probs, task_probs = self.policy(S_)
-                log_probs = torch.log(action_probs)
+                task_probs = self.policy.action_prob_task(S_)
                 task_log_probs = torch.log(task_probs)
-                selected_log_probs = G_ * torch.gather(log_probs, 1, A_.unsqueeze(1)).squeeze()
-                selected_task_log_probs = G_task_ * torch.gather(task_log_probs, 1, A_task_.unsqueeze(1)).squeeze()
+                selected_task_log_probs = G_ * torch.gather(task_log_probs, 1, A_.unsqueeze(1)).squeeze()
                 policy_loss_task = - selected_task_log_probs.mean()
-                policy_loss = - selected_log_probs.mean() + 0.001 * policy_loss_task
-
-                entropy_loss = - (action_probs * log_probs).sum(dim=1).mean()
-
-                loss = policy_loss  #+ self.entropy_coef * entropy_loss
 
                 # Calculate gradients
-                policy_loss_task.backward(retain_graph=True)
-                policy_loss.backward()
+                policy_loss_task.backward()
 
                 # Apply gradients
                 self.optimizer.step()
 
-                sum_loss += policy_loss.item()
                 sum_loss_task += policy_loss_task.item()
                 counter += 1
 
-        return sum_loss / counter, sum_loss_task / counter
+        return sum_loss_task / counter
+
+    def update_policy(self, dataset):
+
+        sum_loss = 0.
+        counter = 0.
+
+        for _, batch in dataset:
+
+            S, A, G = batch
+            S = S.split(self.batch_size)
+            A = A.split(self.batch_size)
+            G = G.split(self.batch_size)
+
+            # create batch of size edible by the gpu
+            for i in range(len(A)):
+                S_ = S[i]
+                A_ = A[i]
+                G_ = G[i]
+
+                # Calculate loss
+                self.optimizer.zero_grad()
+
+                action_probs = self.policy.action_prob(S_)
+                log_probs = torch.log(action_probs)
+                selected_log_probs = G_ * torch.gather(log_probs, 1, A_.unsqueeze(1)).squeeze()
+                policy_loss = - selected_log_probs.mean()
+                policy_loss.backward()
+                # Apply gradients
+                self.optimizer.step()
+
+                sum_loss += policy_loss.item()
+                counter += 1
+
+        return sum_loss / counter
 
     def cumulated_reward(self, rewards, t):
         Gt = 0
@@ -173,12 +202,15 @@ class Reinforce:
     def fit(self):
 
         good_behaviour_dataset = []
+        good_behaviour_task_dataset = []
         # for plotting
         losses = []
         rewards = []
         nb_action = []
         nb_mark = []
         successful_marks = []
+        good_choices = []
+        bad_choices = []
 
         with tqdm(range(self.episodes), unit="episode") as episode:
             for i in episode:
@@ -250,26 +282,36 @@ class Reinforce:
                 self.min_r = min(torch.min(G_batch), self.min_r)
                 self.max_r = max(torch.max(G_batch), self.max_r)
                 G_batch = self.minmax_scaling(G_batch)
-                m = np.mean((sum_episode_reward, self.environment.nb_actions_taken)) + 5. * sum_task_reward
+                m = np.mean((sum_episode_reward, self.environment.nb_actions_taken))
 
                 # ------------------------------------------------------------------------------------------------------
                 # DATASET PREPARATION
                 # ------------------------------------------------------------------------------------------------------
-                good_behaviour_dataset.append((m , (S_batch, A_batch, G_batch, A_task_batch, G_task_batch)))
+                good_behaviour_dataset.append((self.environment.nb_good_choice,
+                                               (S_batch, A_batch, G_batch)))
+                good_behaviour_task_dataset.append((self.environment.marked_correctly,
+                                                    (S_batch, A_task_batch, G_task_batch)))
 
                 if len(good_behaviour_dataset) > self.good_ds_max_size:
                     good_behaviour_dataset = sorted(good_behaviour_dataset, key=itemgetter(0), reverse=True)
+                    good_behaviour_task_dataset = sorted(good_behaviour_task_dataset, key=itemgetter(0), reverse=True)
                     good_behaviour_dataset.pop(-1)
-                if len(good_behaviour_dataset) > 3:
-                    dataset = random.choices(good_behaviour_dataset, k=3)
-                else:
-                    dataset = []
-                    dataset.append((0, (S_batch, A_batch, G_batch, A_task_batch, G_task_batch)))
+                    good_behaviour_task_dataset.pop(-1)
+
+
 
                 # ------------------------------------------------------------------------------------------------------
                 # MODEL OPTIMISATION
                 # ------------------------------------------------------------------------------------------------------
-                mean_loss, mean_loss_task = self.update_policy(dataset)
+                mean_loss = 0.
+                mean_loss_task = 0.
+                if len(good_behaviour_dataset) > 3:
+                    dataset = random.choices(good_behaviour_dataset, k=3)
+                    mean_loss += self.update_policy(dataset)
+
+                if len(good_behaviour_task_dataset) > 3:
+                    dataset = random.choices(good_behaviour_task_dataset, k=1)
+                    mean_loss_task += self.update_policy_task(dataset)
 
                 # ------------------------------------------------------------------------------------------------------
                 # METRICS RECORD
@@ -279,15 +321,19 @@ class Reinforce:
                 nbm = self.environment.nb_mark
                 nbmc = self.environment.marked_correctly
                 st = self.environment.nb_actions_taken
+                gt = self.environment.nb_good_choice
+                bt = self.environment.nb_bad_choice
                 nb_action.append(st)
                 nb_mark.append(nbm)
                 successful_marks.append(nbmc)
+                good_choices.append(gt / (st + 0.00001))
+                bad_choices.append(bt / (st + 0.00001))
 
                 episode.set_postfix(rewards=rewards[-1], loss=mean_loss,
                                     loss_task=mean_loss_task, nb_action=st, nb_mark=nbm,
                                     marked_correctly=nbmc, task_reward=sum_task_reward)
 
-        return losses, rewards, nb_mark, nb_action, successful_marks
+        return losses, rewards, nb_mark, nb_action, successful_marks, good_choices, bad_choices
 
     def exploit(self):
 
@@ -295,6 +341,8 @@ class Reinforce:
         nb_action = []
         nb_mark = []
         successful_marks = []
+        good_choices = []
+        bad_choices = []
 
         with tqdm(range(self.val_episode), unit="episode") as episode:
             for i in episode:
@@ -306,7 +354,9 @@ class Reinforce:
 
                     with torch.no_grad():
                         action_probs, action_probs_task = self.policy(S.unsqueeze(0).to(self.policy.device))
-                    A, A_task = self.policy.follow_policy(action_probs, action_probs_task)
+                    # no need to explore, so we select the most probable action
+                    A = np.argmax(action_probs)
+                    A_task = np.argmax(action_probs_task)
                     S_prime, R, is_terminal, R_task, A_task = self.environment.take_action(A, A_task)
 
                     S = S_prime
@@ -319,12 +369,16 @@ class Reinforce:
                 nbm = self.environment.nb_mark
                 nbmc = self.environment.marked_correctly
                 st = self.environment.nb_actions_taken
+                gt = self.environment.nb_good_choice
+                bt = self.environment.nb_bad_choice
                 nb_action.append(st)
                 nb_mark.append(nbm)
+                good_choices.append(gt / (st + 0.00001))
+                bad_choices.append(bt / (st + 0.00001))
                 successful_marks.append(self.environment.marked_correctly)
 
                 episode.set_postfix(rewards=rewards[-1], nb_action=st, marked_correctly=nbmc, nb_mark=nbm)
 
-        return rewards, nb_mark, nb_action, successful_marks
+        return rewards, nb_mark, nb_action, successful_marks, good_choices, bad_choices
 
 
