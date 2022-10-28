@@ -12,47 +12,52 @@ from tqdm import tqdm
 
 
 class PolicyNet(nn.Module):
-    def __init__(self, n_actions, img_res, hist_res, n_hidden_nodes=700, n_kernels=128, n_layers=1,fine_tune=False):
+    def __init__(self, n_actions, img_res, hist_res, n_hidden_nodes=64, n_kernels=64, n_layers=1,fine_tune=False):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         print("RUNNING ON {0}".format(self.device))
 
-        self.action_space = np.arange(n_actions)
+        self.action_space = np.arange(2)
 
         self.img_res = img_res
         self.hist_res = hist_res
 
-        self.head = torch.nn.Sequential(
-            torch.nn.Linear(1024, n_hidden_nodes),
-            torch.nn.ReLU(),
-            torch.nn.Linear(n_hidden_nodes, (n_hidden_nodes >> 1)),
-            torch.nn.ReLU(),
-            torch.nn.Linear((n_hidden_nodes >> 1), n_actions),
-            torch.nn.Softmax(dim=-1)
-        )
-
-        self.vision_backbone = torch.nn.Sequential(
+        self.backbone = torch.nn.Sequential(
             torch.nn.Conv2d(in_channels=3, out_channels=n_kernels, kernel_size=3),
             torch.nn.ReLU(),
             torch.nn.MaxPool2d(2),
             torch.nn.Conv2d(in_channels=n_kernels, out_channels=n_kernels, kernel_size=3),
-            torch.nn.ReLU(),
-            torch.nn.BatchNorm2d(n_kernels),
-            torch.nn.MaxPool2d(2),
-            torch.nn.Conv2d(in_channels=n_kernels, out_channels=64, kernel_size=3),
             torch.nn.Dropout(0.2),
             torch.nn.ReLU(),
             torch.nn.MaxPool2d(2),
+            torch.nn.Conv2d(in_channels=n_kernels, out_channels=64, kernel_size=3),
+            torch.nn.ReLU(),
+            torch.nn.BatchNorm2d(64),
             torch.nn.Flatten(),
         )
 
-        self.vision_backbone.to(self.device)
-        self.head.to(self.device)
+        self.middle = torch.nn.Sequential(
+            torch.nn.Linear(1024, n_hidden_nodes),
+            torch.nn.ReLU(),
+            torch.nn.Linear(n_hidden_nodes, (n_hidden_nodes >> 1)),
+            torch.nn.ReLU(),
+        )
 
-        self.vision_backbone.apply(self.init_weights)
-        self.head.apply(self.init_weights)
+        self.heads = []
+        for i in range(4):
+            self.heads.append(torch.nn.Sequential(
+                torch.nn.Linear((n_hidden_nodes >> 1), 2),
+                torch.nn.Softmax(dim=-1)
+            ))
+
+
+        self.backbone.to(self.device)
+        self.middle.to(self.device)
+
+        self.backbone.apply(self.init_weights)
+        self.middle.apply(self.init_weights)
 
     def init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -64,17 +69,28 @@ class PolicyNet(nn.Module):
 
     def forward(self, state):
         img = self.prepare_data(state)
-        x = self.vision_backbone(img)
-        action_probs = self.head(x)
-        return action_probs
+        x = self.backbone(img)
+        x = self.middle(x)
+        probs = []
+        for head in self.heads:
+            probs.append(head(x))
+        return probs
 
     def follow_policy(self, action_probs):
-        action_probs = action_probs.detach().cpu().numpy()[0]
-        return np.random.choice(self.action_space, p=action_probs)
+        action_per_head = []
+        actions = ""
+        for probs in action_probs:
+            probs = probs.detach().cpu().numpy()[0]
+            action = np.random.choice(self.action_space, p=probs)
+            action_per_head.append(action)
+            actions += str(action)
+
+        return int(actions, 2), action_per_head
+
 
 class Reinforce:
 
-    def __init__(self, environment, learning_rate=0.00006,
+    def __init__(self, environment, learning_rate=0.0001,
                  episodes=100, val_episode=10, guided_episodes=10, gamma=0.2,
                  dataset_max_size=10, good_ds_max_size=20,
                  entropy_coef=0.2, img_res=32, hist_res=32, batch_size=128,
@@ -119,16 +135,18 @@ class Reinforce:
 
                 # Calculate loss
                 self.optimizer.zero_grad()
-
                 action_probs = self.policy(S_)
-                log_probs = torch.log(action_probs)
-                selected_log_probs = G_ * torch.gather(log_probs, 1, A_.unsqueeze(1)).squeeze()
-                policy_loss = - selected_log_probs.mean()
-                policy_loss.backward()
+                loss = 0
+                for i, probs in enumerate(action_probs):
+                    log_probs = torch.log(probs)
+                    selected_log_probs = G_ * torch.gather(log_probs, 1, A_[:, i].unsqueeze(1)).squeeze()
+                    loss += - selected_log_probs.mean()
+                loss /= 4.
+                loss.backward()
                 # Apply gradients
                 self.optimizer.step()
 
-                sum_loss += policy_loss.item()
+                sum_loss += loss.item()
                 counter += 1
 
         return sum_loss / counter
@@ -179,14 +197,15 @@ class Reinforce:
 
                     with torch.no_grad():
                         action_probs = self.policy(S.unsqueeze(0).to(self.policy.device))
-                    A = self.policy.follow_policy(action_probs)
+                    A, A_heads = self.policy.follow_policy(action_probs)
                     # Exploratory start for guided episodes to ensure the agent don't fall into a local minimum
                     if i <= self.guided_episodes:
                         A = 15
+                        A_heads = [1, 1, 1, 1]
                     S_prime, R, is_terminal = self.environment.take_action(A)
 
                     S_batch.append(S)
-                    A_batch.append(A)
+                    A_batch.append(A_heads)
                     R_batch.append(R)
 
                     S = S_prime
@@ -214,6 +233,15 @@ class Reinforce:
                 G_batch = self.minmax_scaling(G_batch)
 
                 # ------------------------------------------------------------------------------------------------------
+                # MODEL OPTIMISATION
+                # ------------------------------------------------------------------------------------------------------
+                mean_loss = 0.
+                if len(good_behaviour_dataset) > 3:
+                    dataset = random.choices(good_behaviour_dataset, k=2)
+                    dataset.append((0, (S_batch, A_batch, G_batch)))
+                    mean_loss += self.update_policy(dataset)
+
+                # ------------------------------------------------------------------------------------------------------
                 # DATASET PREPARATION
                 # ------------------------------------------------------------------------------------------------------
                 good_behaviour_dataset.append((sum_episode_reward, (S_batch, A_batch, G_batch)))
@@ -222,13 +250,6 @@ class Reinforce:
                     good_behaviour_dataset = sorted(good_behaviour_dataset, key=itemgetter(0), reverse=True)
                     good_behaviour_dataset.pop(-1)
 
-                # ------------------------------------------------------------------------------------------------------
-                # MODEL OPTIMISATION
-                # ------------------------------------------------------------------------------------------------------
-                mean_loss = 0.
-                if len(good_behaviour_dataset) > 3:
-                    dataset = random.choices(good_behaviour_dataset, k=3)
-                    mean_loss += self.update_policy(dataset)
 
 
                 # ------------------------------------------------------------------------------------------------------
@@ -272,8 +293,12 @@ class Reinforce:
                     with torch.no_grad():
                         action_probs = self.policy(S.unsqueeze(0).to(self.policy.device))
                     # no need to explore, so we select the most probable action
-                    A = np.argmax(action_probs.detach().cpu().numpy()[0])
-                    S_prime, R, is_terminal = self.environment.take_action(A)
+                    A = ""
+                    for probs in action_probs:
+                        probs = probs.detach().cpu().numpy()[0]
+                        action = np.argmax(probs)
+                        A += str(action)
+                    S_prime, R, is_terminal = self.environment.take_action(int(A, 2))
 
                     S = S_prime
                     sum_episode_reward += R

@@ -21,7 +21,7 @@ def check_cuda():
                if len(ci) > 0 and re.search(r'(nvidia*:?)|(cuda*:)|(cudnn*:)', ci.lower()) is not None]
     return len(cv_info) > 0
 
-MODEL_RES = 50
+MODEL_RES = 32
 HIST_RES = 100
 
 
@@ -239,8 +239,7 @@ class Environment:
         if action % 2:
             pos, _ = self.sub_images[counter]
             x, y, z = pos
-            charlie_detected = self.sub_img_contain_charlie(x, y, z)
-            #reward += 1 if charlie_detected else 0
+
             if self.sub_image_contain_roi(x, y, z):
                 self.nb_good_choice += 1
             else:
@@ -248,8 +247,8 @@ class Environment:
 
             if z >= self.min_zoom:
                 self.sub_images_queue.append(self.sub_images[counter])
-            elif charlie_detected:
-                reward = (4 << (self.min_zoom + 1)) - self.nb_actions_taken
+            elif self.sub_img_contain_charlie(x, y, z):
+                reward = 101#(4 << (self.min_zoom + 1)) - self.nb_actions_taken
                 is_terminal = True
                 if self.difficulty > 0:
                     self.place_charlie()
