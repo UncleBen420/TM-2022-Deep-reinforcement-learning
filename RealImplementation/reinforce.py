@@ -55,9 +55,13 @@ class PolicyNet(nn.Module):
 
         self.backbone.to(self.device)
         self.middle.to(self.device)
+        for head in self.heads:
+            head.to(self.device)
 
         self.backbone.apply(self.init_weights)
         self.middle.apply(self.init_weights)
+        for head in self.heads:
+            head.apply(self.init_weights)
 
     def init_weights(self, m):
         if isinstance(m, nn.Linear):
