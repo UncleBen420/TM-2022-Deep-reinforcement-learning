@@ -29,7 +29,6 @@ class PolicyNet(nn.Module):
             torch.nn.ReLU(),
             torch.nn.MaxPool2d(2),
             torch.nn.Conv2d(in_channels=n_kernels >> 2, out_channels=n_kernels >> 1, kernel_size=3),
-            torch.nn.Dropout(0.2),
             torch.nn.ReLU(),
             torch.nn.MaxPool2d(2),
             torch.nn.Conv2d(in_channels=n_kernels >> 1, out_channels=n_kernels, kernel_size=3),
@@ -51,7 +50,6 @@ class PolicyNet(nn.Module):
                 torch.nn.Linear(n_head_nodes, 2),
                 torch.nn.Softmax(dim=-1)
             ))
-
 
         self.backbone.to(self.device)
         self.middle.to(self.device)
@@ -94,9 +92,9 @@ class PolicyNet(nn.Module):
 
 class Reinforce:
 
-    def __init__(self, environment, learning_rate=0.0001,
-                 episodes=100, val_episode=10, guided_episodes=10, gamma=0.2,
-                 dataset_max_size=10, good_ds_max_size=20,
+    def __init__(self, environment, learning_rate=0.00005,
+                 episodes=100, val_episode=10, guided_episodes=10, gamma=0.7,
+                 dataset_max_size=10, good_ds_max_size=40,
                  entropy_coef=0.2, img_res=32, hist_res=32, batch_size=128,
                  early_stopping_threshold=0.0001):
 
@@ -245,7 +243,7 @@ class Reinforce:
                 # MODEL OPTIMISATION
                 # ------------------------------------------------------------------------------------------------------
                 mean_loss = 0.
-                if len(good_behaviour_dataset) > 3:
+                if len(good_behaviour_dataset) > 5:
                     dataset = random.choices(good_behaviour_dataset, k=3)
                     mean_loss += self.update_policy(dataset)
 

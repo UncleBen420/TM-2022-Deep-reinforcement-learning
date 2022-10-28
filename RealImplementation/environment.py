@@ -10,6 +10,7 @@ import cv2
 import imageio
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy import ndimage
 
 
 def check_cuda():
@@ -63,13 +64,20 @@ class Environment:
         """
         this method place change the charlie's position on the map.
         """
+        if self.difficulty >= 2 and not self.evaluation_mode:
+            angle = random.randint(0, 3)
+            self.full_img = np.rot90(self.base_img, angle)
+            self.mask = np.rot90(self.base_mask, angle)
+            self.compute_mask_map()
+        else:
+            self.full_img = self.base_img.copy()
+
         while True:
             x = random.randint(0, self.W - 1)
             y = random.randint(0, self.H - 1)
             if self.mask[y][x][0] == 0:
                 self.charlie_x = x
                 self.charlie_y = y
-                self.full_img = self.base_img.copy()
                 self.full_img[self.charlie_y:self.charlie_y + self.charlie.shape[0],
                 self.charlie_x:self.charlie_x + self.charlie.shape[1]] = self.charlie
                 break
@@ -116,7 +124,7 @@ class Environment:
         self.base_img = cv2.cvtColor(cv2.imread(img), cv2.COLOR_BGR2RGB)
         self.H, self.W, self.channels = self.base_img.shape
         self.ratio = HIST_RES / self.H
-        self.mask = cv2.imread(mask)
+        self.base_mask = cv2.imread(mask)
         self.max_distance = math.sqrt(self.W ** 2 + self.H ** 2)
         min_dim = np.min([self.W, self.H])
         self.max_zoom = int(math.log(min_dim, 2))
@@ -149,10 +157,8 @@ class Environment:
 
         _, mask_map = cv2.threshold(mask_map, 10, 255, cv2.THRESH_BINARY)
         self.ROI = np.array(np.where(mask_map == False))
-        print(self.ROI)
         self.ROI[0, :] *= 100
         self.ROI[1, :] *= 100
-        print(self.ROI)
 
     def record(self, x, y, z):
         window = self.zoom_padding << (z - 1)
@@ -238,6 +244,7 @@ class Environment:
             elif self.sub_img_contain_charlie(x, y, z):
                 reward = (2 << self.min_zoom) - self.nb_actions_taken
                 is_terminal = True
+
                 if self.difficulty > 0:
                     self.place_charlie()
 
