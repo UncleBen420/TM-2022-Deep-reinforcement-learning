@@ -120,7 +120,7 @@ if __name__ == '__main__':
     ENVIRONMENT.init_env()
 
     EVALUATOR = Evaluator()
-    REIN = Reinforce(ENVIRONMENT, episodes=3000, val_episode=100)
+    REIN = Reinforce(ENVIRONMENT, episodes=1000, val_episode=100)
     DUMMY = DummyAgent(ENVIRONMENT, val_episode=100)
 
     EVALUATOR.init_plot()
@@ -140,7 +140,7 @@ if __name__ == '__main__':
     vmin = np.max(policy)
     vmax = np.max(policy)
 
-    for i in range(policy.shape[0] - 1):
+    for i in range(policy.shape[0]):
         cset = ax.contourf(x, y, policy[i], 100, zdir='z', offset=i * 50, alpha=0.4)
     cset = ax.contourf(x, y, cv2.cvtColor(ENVIRONMENT.hist_img, cv2.COLOR_BGR2GRAY), 100, zdir='z', cmap='Greys_r',offset=0)
     plt.show()

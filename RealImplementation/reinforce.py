@@ -237,16 +237,6 @@ class Reinforce:
                 G_batch = self.minmax_scaling(G_batch)
 
                 # ------------------------------------------------------------------------------------------------------
-                # MODEL OPTIMISATION
-                # ------------------------------------------------------------------------------------------------------
-                mean_loss = 0.
-                if len(good_behaviour_dataset) > 3:
-                    dataset = random.choices(good_behaviour_dataset, k=2)
-                    if i > 100:
-                        dataset.append((0, (S_batch, A_batch, G_batch)))
-                    mean_loss += self.update_policy(dataset)
-
-                # ------------------------------------------------------------------------------------------------------
                 # DATASET PREPARATION
                 # ------------------------------------------------------------------------------------------------------
                 good_behaviour_dataset.append((sum_episode_reward, (S_batch, A_batch, G_batch)))
@@ -255,7 +245,13 @@ class Reinforce:
                     good_behaviour_dataset = sorted(good_behaviour_dataset, key=itemgetter(0), reverse=True)
                     good_behaviour_dataset.pop(-1)
 
-
+                # ------------------------------------------------------------------------------------------------------
+                # MODEL OPTIMISATION
+                # ------------------------------------------------------------------------------------------------------
+                mean_loss = 0.
+                if len(good_behaviour_dataset) > 3:
+                    dataset = random.choices(good_behaviour_dataset, k=3)
+                    mean_loss += self.update_policy(dataset)
 
                 # ------------------------------------------------------------------------------------------------------
                 # METRICS RECORD

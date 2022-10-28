@@ -97,11 +97,14 @@ class Environment:
         self.y = 0
         self.nb_mark = 0
 
+        if self.difficulty > 0 and self.evaluation_mode:
+            self.place_charlie()
+
         self.marked_correctly = False
-        if self.cv_cuda:
-            self.get_sub_images(self.gpu_full_img)
-        else:
-            self.get_sub_images(self.full_img)
+        #if self.cv_cuda:
+        #    self.get_sub_images(self.gpu_full_img)
+        #else:
+        self.get_sub_images(self.full_img)
         S = self.get_current_state_deep()
 
         return S
@@ -135,9 +138,9 @@ class Environment:
 
         self.place_charlie()
 
-        if self.cv_cuda:
-            self.gpu_full_img = cv2.cuda_GpuMat()
-            self.gpu_full_img.upload(self.full_img)
+        #if self.cv_cuda:
+        #    self.gpu_full_img = cv2.cuda_GpuMat()
+        #    self.gpu_full_img.upload(self.full_img)
         self.hist_img = cv2.resize(self.full_img, (HIST_RES, HIST_RES))
         self.compute_mask_map()
 
@@ -158,12 +161,12 @@ class Environment:
         self.ROI[0, :] *= w
         self.ROI[1, :] *= h
 
-    def record(self):
-        window = self.zoom_padding << (self.z - 1)
-        self.heat_map[self.z - self.min_zoom][int(window * self.y * self.ratio):
-                      int((window + window * self.y) * self.ratio),
-        int(window * self.x * self.ratio):
-        int((window + window * self.x) * self.ratio)] += 1
+    def record(self, x, y, z):
+        window = self.zoom_padding << (z - 1)
+        self.heat_map[z - self.min_zoom + 1][int(window * y * self.ratio):
+                      int((window + window * y) * self.ratio),
+        int(window * x * self.ratio):
+        int((window + window * x) * self.ratio)] += 1
 
     def get_sub_images(self, img):
         if self.cv_cuda:
@@ -178,7 +181,7 @@ class Environment:
         h = int(img.shape[0] / 2)
         w = int(img.shape[1] / 2)
         self.sub_images = []
-        if self.cv_cuda:
+        if False:
             for i in range(2):
                 for j in range(2):
                     x_ = sub_x + i
@@ -240,6 +243,10 @@ class Environment:
             pos, _ = self.sub_images[counter]
             x, y, z = pos
 
+            self.history.append((x, y, z))
+            if self.evaluation_mode:
+                self.record(x, y, z)
+
             if self.sub_image_contain_roi(x, y, z):
                 self.nb_good_choice += 1
             else:
@@ -248,7 +255,7 @@ class Environment:
             if z >= self.min_zoom:
                 self.sub_images_queue.append(self.sub_images[counter])
             elif self.sub_img_contain_charlie(x, y, z):
-                reward = 101#(4 << (self.min_zoom + 1)) - self.nb_actions_taken
+                reward = 101
                 is_terminal = True
                 if self.difficulty > 0:
                     self.place_charlie()
@@ -262,10 +269,6 @@ class Environment:
         :return: the next state, the reward, if the state is terminal and a tips of which action the agent should have
         choose.
         """
-
-        self.history.append((self.x, self.y, self.z, action))
-        if self.evaluation_mode:
-            self.record()
 
         # check if we are at the maximum zoom possible
         reward, is_terminal = self.action_selection(action)
@@ -290,7 +293,7 @@ class Environment:
         """
         frames = []
         for i in range(self.nb_actions_taken):
-            x, y, z, a = self.history[i]
+            x, y, z = self.history[i]
             mm = self.hist_img.copy()
 
             color = [0, 255, 0]
