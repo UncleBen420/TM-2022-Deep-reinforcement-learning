@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 
 class PolicyNet(nn.Module):
-    def __init__(self, n_actions, img_res, hist_res, n_hidden_nodes=64, n_kernels=64, n_layers=1,fine_tune=False):
+    def __init__(self, img_res, hist_res, n_hidden_nodes=512, n_head_nodes=64, n_kernels=64, n_layers=1,fine_tune=False):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -25,30 +25,30 @@ class PolicyNet(nn.Module):
         self.hist_res = hist_res
 
         self.backbone = torch.nn.Sequential(
-            torch.nn.Conv2d(in_channels=3, out_channels=n_kernels, kernel_size=3),
+            torch.nn.Conv2d(in_channels=3, out_channels=n_kernels >> 2, kernel_size=3),
             torch.nn.ReLU(),
             torch.nn.MaxPool2d(2),
-            torch.nn.Conv2d(in_channels=n_kernels, out_channels=n_kernels, kernel_size=3),
+            torch.nn.Conv2d(in_channels=n_kernels >> 2, out_channels=n_kernels >> 1, kernel_size=3),
             torch.nn.Dropout(0.2),
             torch.nn.ReLU(),
             torch.nn.MaxPool2d(2),
-            torch.nn.Conv2d(in_channels=n_kernels, out_channels=64, kernel_size=3),
+            torch.nn.Conv2d(in_channels=n_kernels >> 1, out_channels=n_kernels, kernel_size=3),
             torch.nn.ReLU(),
-            torch.nn.BatchNorm2d(64),
+            torch.nn.BatchNorm2d(n_kernels),
             torch.nn.Flatten(),
         )
 
         self.middle = torch.nn.Sequential(
-            torch.nn.Linear(1024, n_hidden_nodes),
+            torch.nn.Linear(n_kernels << 4, n_hidden_nodes),
             torch.nn.ReLU(),
-            torch.nn.Linear(n_hidden_nodes, (n_hidden_nodes >> 1)),
+            torch.nn.Linear(n_hidden_nodes, n_head_nodes),
             torch.nn.ReLU(),
         )
 
         self.heads = []
         for i in range(4):
             self.heads.append(torch.nn.Sequential(
-                torch.nn.Linear((n_hidden_nodes >> 1), 2),
+                torch.nn.Linear(n_head_nodes, 2),
                 torch.nn.Softmax(dim=-1)
             ))
 
@@ -111,7 +111,7 @@ class Reinforce:
         self.min_r = 0
         self.max_r = 1
         self.guided_episodes = guided_episodes
-        self.policy = PolicyNet(environment.nb_action, img_res, hist_res)
+        self.policy = PolicyNet(img_res, hist_res)
         print(self.policy)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=learning_rate)
         self.early_stopping_threshold = early_stopping_threshold
@@ -241,10 +241,6 @@ class Reinforce:
                 # ------------------------------------------------------------------------------------------------------
                 good_behaviour_dataset.append((sum_episode_reward, (S_batch, A_batch, G_batch)))
 
-                if len(good_behaviour_dataset) > self.good_ds_max_size:
-                    good_behaviour_dataset = sorted(good_behaviour_dataset, key=itemgetter(0), reverse=True)
-                    good_behaviour_dataset.pop(-1)
-
                 # ------------------------------------------------------------------------------------------------------
                 # MODEL OPTIMISATION
                 # ------------------------------------------------------------------------------------------------------
@@ -252,6 +248,10 @@ class Reinforce:
                 if len(good_behaviour_dataset) > 3:
                     dataset = random.choices(good_behaviour_dataset, k=3)
                     mean_loss += self.update_policy(dataset)
+
+                if len(good_behaviour_dataset) > self.good_ds_max_size:
+                    good_behaviour_dataset = sorted(good_behaviour_dataset, key=itemgetter(0), reverse=True)
+                    good_behaviour_dataset.pop(-1)
 
                 # ------------------------------------------------------------------------------------------------------
                 # METRICS RECORD

@@ -23,6 +23,7 @@ def check_cuda():
 
 MODEL_RES = 32
 HIST_RES = 100
+ZOOM_DEPTH = 4
 
 
 class Environment:
@@ -39,22 +40,16 @@ class Environment:
         self.charlie_x = 0
         self.history = None
         self.policy_hist = {}
-        self.heat_map = np.zeros((6, HIST_RES, HIST_RES))
+        self.heat_map = np.zeros((ZOOM_DEPTH + 1, HIST_RES, HIST_RES))
         self.nb_actions_taken = 0
         self.nb_max_actions = nb_max_actions
         self.search_style = -1 if depth else 0
-        self.nb_action = 16
-
         self.zoom_padding = 2
         self.z = 1
         self.x = 0
         self.y = 0
-        # (x, y)
-        self.sub_grid = None
-        # State of the environment
-        self.dummy_boat_model = None
-        self.dummy_surface_model = None
-        self.vision = np.zeros(7, dtype=int)
+        self.nb_action = 16
+
         self.guided = True
         self.cv_cuda = check_cuda()
         self.difficulty = difficulty
@@ -101,11 +96,10 @@ class Environment:
             self.place_charlie()
 
         self.marked_correctly = False
-        #if self.cv_cuda:
-        #    self.get_sub_images(self.gpu_full_img)
-        #else:
+
         self.get_sub_images(self.full_img)
         S = self.get_current_state_deep()
+
 
         return S
 
@@ -126,7 +120,7 @@ class Environment:
         self.max_distance = math.sqrt(self.W ** 2 + self.H ** 2)
         min_dim = np.min([self.W, self.H])
         self.max_zoom = int(math.log(min_dim, 2))
-        self.min_zoom = self.max_zoom - 5
+        self.min_zoom = self.max_zoom - ZOOM_DEPTH
 
     def init_env(self):
         """
@@ -138,9 +132,6 @@ class Environment:
 
         self.place_charlie()
 
-        #if self.cv_cuda:
-        #    self.gpu_full_img = cv2.cuda_GpuMat()
-        #    self.gpu_full_img.upload(self.full_img)
         self.hist_img = cv2.resize(self.full_img, (HIST_RES, HIST_RES))
         self.compute_mask_map()
 
@@ -148,18 +139,20 @@ class Environment:
         """
         Compute the sub grid at the agent position given the x, y and z axis.
         """
-        h = int(self.H / (self.zoom_padding << (self.min_zoom - 2)))
-        w = int(self.W / (self.zoom_padding << (self.min_zoom - 2)))
+        h = int(self.H / 100)
+        w = int(self.W / 100)
 
         mask_map = cv2.cvtColor(cv2.resize(self.mask, (h, w)), cv2.COLOR_BGR2GRAY)
 
         kernel = np.ones((3, 3), 'uint8')
-        mask_map = cv2.erode(mask_map, kernel, iterations=1)
+        mask_map = cv2.erode(mask_map, kernel, iterations=2)
 
         _, mask_map = cv2.threshold(mask_map, 10, 255, cv2.THRESH_BINARY)
         self.ROI = np.array(np.where(mask_map == False))
-        self.ROI[0, :] *= w
-        self.ROI[1, :] *= h
+        print(self.ROI)
+        self.ROI[0, :] *= 100
+        self.ROI[1, :] *= 100
+        print(self.ROI)
 
     def record(self, x, y, z):
         window = self.zoom_padding << (z - 1)
@@ -169,10 +162,10 @@ class Environment:
         int((window + window * x) * self.ratio)] += 1
 
     def get_sub_images(self, img):
-        if self.cv_cuda:
-            self.sub_vision = cv2.cuda.resize(img, (MODEL_RES, MODEL_RES)).download()
-        else:
-            self.sub_vision = cv2.resize(img, (MODEL_RES, MODEL_RES))
+        #if self.cv_cuda:
+        #    self.sub_vision = cv2.cuda.resize(img, (MODEL_RES, MODEL_RES)).download()
+        #else:
+        self.sub_vision = cv2.resize(img, (MODEL_RES, MODEL_RES))
 
         sub_z = self.z - 1
         sub_x = self.x << 1
@@ -181,26 +174,13 @@ class Environment:
         h = int(img.shape[0] / 2)
         w = int(img.shape[1] / 2)
         self.sub_images = []
-        if False:
-            for i in range(2):
-                for j in range(2):
-                    x_ = sub_x + i
-                    y_ = sub_y + j
 
-                    minY = h * j
-                    minX = w * i
-                    maxY = h + h * j
-                    maxX = w + w * i
-
-                    gpu = cv2.cuda_GpuMat(img, (minY, minX, maxY, maxX))
-                    self.sub_images.append(((x_, y_, sub_z), gpu))
-        else:
-            for i in range(2):
-                for j in range(2):
-                    x_ = sub_x + i
-                    y_ = sub_y + j
-                    self.sub_images.append(((x_, y_, sub_z),
-                                            (img[h * j:h + h * j, w * i: w + w * i])))
+        for i in range(2):
+            for j in range(2):
+                x_ = sub_x + i
+                y_ = sub_y + j
+                self.sub_images.append(((x_, y_, sub_z),
+                                        (img[h * j:h + h * j, w * i: w + w * i])))
 
     def sub_img_contain_charlie(self, x, y, z):
         """
@@ -208,11 +188,11 @@ class Environment:
         :return: true if the sub grid contains charlie.
         """
         window = self.zoom_padding << (z - 1)
-        return ((x * window <= self.charlie_x < x * window + window or
-                x * window <= self.charlie_x + self.charlie.shape[1] < x * window + window)
+        return ((x * window <= self.charlie_x < x * window + window - self.charlie.shape[1] / 2 or
+                x * window <= self.charlie_x + self.charlie.shape[1] / 2 < x * window + window)
                 and
-                (y * window <= self.charlie_y < y * window + window or
-                y * window <= self.charlie_y + self.charlie.shape[0] < y * window + window))
+                (y * window <= self.charlie_y < y * window + window - self.charlie.shape[0] / 2 or
+                y * window <= self.charlie_y + self.charlie.shape[0] / 2 < y * window + window))
 
     def get_current_state_deep(self):
         """
@@ -226,6 +206,7 @@ class Environment:
     def sub_image_contain_roi(self, x, y, z):
         window = self.zoom_padding << (z - 1)
         for i in range(self.ROI.shape[1]):
+
             if (x * window <= self.ROI[1][i] < x * window + window and
                     y * window <= self.ROI[0][i] < y * window + window):
                 return True
@@ -240,7 +221,7 @@ class Environment:
             is_terminal = False
 
         if action % 2:
-            pos, _ = self.sub_images[counter]
+            pos, img = self.sub_images[counter]
             x, y, z = pos
 
             self.history.append((x, y, z))
@@ -255,7 +236,7 @@ class Environment:
             if z >= self.min_zoom:
                 self.sub_images_queue.append(self.sub_images[counter])
             elif self.sub_img_contain_charlie(x, y, z):
-                reward = 101
+                reward = (2 << self.min_zoom) - self.nb_actions_taken
                 is_terminal = True
                 if self.difficulty > 0:
                     self.place_charlie()
@@ -275,7 +256,7 @@ class Environment:
 
         if len(self.sub_images_queue) <= 0:
             # for the case if charlie is detected at the last step
-            reward = -100 if not is_terminal else reward
+            reward = -1 if not is_terminal else reward
             is_terminal = True
         else:
             position, img = self.sub_images_queue.pop(self.search_style)
