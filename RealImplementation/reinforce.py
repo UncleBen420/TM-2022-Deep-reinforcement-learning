@@ -242,7 +242,8 @@ class Reinforce:
                 mean_loss = 0.
                 if len(good_behaviour_dataset) > 3:
                     dataset = random.choices(good_behaviour_dataset, k=2)
-                    dataset.append((0, (S_batch, A_batch, G_batch)))
+                    if i > 100:
+                        dataset.append((0, (S_batch, A_batch, G_batch)))
                     mean_loss += self.update_policy(dataset)
 
                 # ------------------------------------------------------------------------------------------------------
