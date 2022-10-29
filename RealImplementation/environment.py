@@ -71,6 +71,7 @@ class Environment:
             self.compute_mask_map()
         else:
             self.full_img = self.base_img.copy()
+            self.mask = self.base_mask
 
         while True:
             x = random.randint(0, self.W - 1)
@@ -100,7 +101,7 @@ class Environment:
         self.y = 0
         self.nb_mark = 0
 
-        if self.difficulty > 0 and self.evaluation_mode:
+        if self.difficulty > 0:
             self.place_charlie()
 
         self.marked_correctly = False
@@ -188,18 +189,6 @@ class Environment:
                 self.sub_images.append(((x_, y_, sub_z),
                                         (img[h * j:h + h * j, w * i: w + w * i])))
 
-    def sub_img_contain_charlie(self, x, y, z):
-        """
-        This method allow the user to know if the current subgrid contain charlie or not
-        :return: true if the sub grid contains charlie.
-        """
-        window = self.zoom_padding << (z - 1)
-        return ((x * window <= self.charlie_x < x * window + window - self.charlie.shape[1] / 2 or
-                x * window <= self.charlie_x + self.charlie.shape[1] / 2 < x * window + window)
-                and
-                (y * window <= self.charlie_y < y * window + window - self.charlie.shape[0] / 2 or
-                y * window <= self.charlie_y + self.charlie.shape[0] / 2 < y * window + window))
-
     def get_current_state_deep(self):
         """
         give to the agent 2 images (the sub image and the hist image). they are squeeze into
@@ -209,12 +198,30 @@ class Environment:
 
         return np.array(self.sub_vision.squeeze() / 255)
 
+    def sub_img_contain_charlie(self, x, y, z):
+        """
+        This method allow the user to know if the current subgrid contain charlie or not
+        :return: true if the sub grid contains charlie.
+        """
+        window = self.zoom_padding << (z - 1)
+        charlie_w = self.charlie.shape[1]
+        charlie_h = self.charlie.shape[0]
+        return ((x * window <= self.charlie_x < x * window + window - charlie_w or
+                x * window <= self.charlie_x + charlie_w < x * window + window)
+                and
+                (y * window <= self.charlie_y < y * window + window - charlie_h or
+                y * window <= self.charlie_y + charlie_h < y * window + window))
+
     def sub_image_contain_roi(self, x, y, z):
         window = self.zoom_padding << (z - 1)
+        roi_pad = 100
         for i in range(self.ROI.shape[1]):
 
-            if (x * window <= self.ROI[1][i] < x * window + window and
-                    y * window <= self.ROI[0][i] < y * window + window):
+            if ((x * window <= self.ROI[1][i] < x * window + window or
+                 x * window <= self.ROI[1][i] + roi_pad < x * window + window)
+                and
+                (y * window <= self.ROI[0][i] < y * window + window or
+                 y * window <= self.ROI[0][i] + roi_pad < y * window + window)):
                 return True
 
         return False
@@ -244,9 +251,6 @@ class Environment:
             elif self.sub_img_contain_charlie(x, y, z):
                 reward = (2 << self.min_zoom) - self.nb_actions_taken
                 is_terminal = True
-
-                if self.difficulty > 0:
-                    self.place_charlie()
 
         return reward, is_terminal
 
@@ -280,8 +284,8 @@ class Environment:
         :param name: the name of the gif file
         """
         frames = []
-        for i in range(self.nb_actions_taken):
-            x, y, z = self.history[i]
+        for hist in self.history:
+            x, y, z = hist
             mm = self.hist_img.copy()
 
             color = [0, 255, 0]

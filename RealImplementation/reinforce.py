@@ -1,6 +1,7 @@
 import random
 from operator import itemgetter
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch import nn
@@ -12,7 +13,7 @@ from tqdm import tqdm
 
 
 class PolicyNet(nn.Module):
-    def __init__(self, img_res, hist_res, n_hidden_nodes=512, n_head_nodes=64, n_kernels=64, n_layers=1,fine_tune=False):
+    def __init__(self, img_res, hist_res, n_hidden_nodes=512, n_head_nodes=64, n_kernels=128, n_layers=1,fine_tune=False):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -25,41 +26,29 @@ class PolicyNet(nn.Module):
         self.hist_res = hist_res
 
         self.backbone = torch.nn.Sequential(
-            torch.nn.Conv2d(in_channels=3, out_channels=n_kernels >> 2, kernel_size=3),
+            torch.nn.Conv2d(in_channels=3, out_channels=n_kernels >> 1, kernel_size=5),
             torch.nn.ReLU(),
             torch.nn.MaxPool2d(2),
-            torch.nn.Conv2d(in_channels=n_kernels >> 2, out_channels=n_kernels >> 1, kernel_size=3),
-            torch.nn.ReLU(),
-            torch.nn.MaxPool2d(2),
-            torch.nn.Conv2d(in_channels=n_kernels >> 1, out_channels=n_kernels, kernel_size=3),
+            torch.nn.Conv2d(in_channels=n_kernels >> 1, out_channels=n_kernels, kernel_size=5),
             torch.nn.ReLU(),
             torch.nn.BatchNorm2d(n_kernels),
             torch.nn.Flatten(),
         )
 
-        self.middle = torch.nn.Sequential(
-            torch.nn.Linear(n_kernels << 4, n_hidden_nodes),
-            torch.nn.ReLU(),
-            torch.nn.Linear(n_hidden_nodes, n_head_nodes),
-            torch.nn.ReLU(),
-        )
-
-        self.heads = []
-        for i in range(4):
-            self.heads.append(torch.nn.Sequential(
+        self.head = torch.nn.Sequential(
+                torch.nn.Linear(n_kernels << 2, n_hidden_nodes),
+                torch.nn.ReLU(),
+                torch.nn.Linear(n_hidden_nodes, n_head_nodes),
+                torch.nn.ReLU(),
                 torch.nn.Linear(n_head_nodes, 2),
                 torch.nn.Softmax(dim=-1)
-            ))
+            )
 
         self.backbone.to(self.device)
-        self.middle.to(self.device)
-        for head in self.heads:
-            head.to(self.device)
+        self.head.to(self.device)
 
         self.backbone.apply(self.init_weights)
-        self.middle.apply(self.init_weights)
-        for head in self.heads:
-            head.apply(self.init_weights)
+        self.head.apply(self.init_weights)
 
     def init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -67,16 +56,22 @@ class PolicyNet(nn.Module):
             m.bias.data.fill_(0.01)
 
     def prepare_data(self, state):
-        return state.permute(0, 3, 1, 2)
+        img = state.permute(0, 3, 1, 2)
+        patches = img.unfold(1, 3, 3).unfold(2, 16, 16).unfold(3, 16, 16)
+        patches = patches.contiguous().view(1, 4, -1, 16, 16)
+        return patches
 
     def forward(self, state):
-        img = self.prepare_data(state)
-        x = self.backbone(img)
-        x = self.middle(x)
         probs = []
-        for head in self.heads:
-            probs.append(head(x))
+        for i in range(4):
+            x = self.backbone(state[:, i])
+            x = self.head(x)
+            probs.append(x)
         return probs
+
+    def forward_one_head(self, state):
+        x = self.backbone(state)
+        return self.head(x)
 
     def follow_policy(self, action_probs):
         action_per_head = []
@@ -135,20 +130,19 @@ class Reinforce:
                 A_ = A[i]
                 G_ = G[i]
 
-                # Calculate loss
-                self.optimizer.zero_grad()
-                action_probs = self.policy(S_)
                 loss = 0
-                for i, probs in enumerate(action_probs):
-                    log_probs = torch.log(probs)
+                for i in range(4):
+                    # Calculate loss
+                    self.optimizer.zero_grad()
+                    action_probs = self.policy.forward_one_head(S_[:, i])
+                    log_probs = torch.log(action_probs)
                     selected_log_probs = G_ * torch.gather(log_probs, 1, A_[:, i].unsqueeze(1)).squeeze()
-                    loss += - selected_log_probs.mean()
-                loss /= 4.
-                loss.backward()
-                # Apply gradients
-                self.optimizer.step()
+                    policy_loss = - selected_log_probs.mean()
+                    policy_loss.backward()
+                    self.optimizer.step()
+                    loss += policy_loss
 
-                sum_loss += loss.item()
+                sum_loss += loss.item() / 4.
                 counter += 1
 
         return sum_loss / counter
@@ -194,11 +188,13 @@ class Reinforce:
                 # ------------------------------------------------------------------------------------------------------
                 while True:
 
-                    # casting to torch tensor
+                    # State preprocess
                     S = torch.from_numpy(S).float()
+                    S = S.unsqueeze(0).to(self.policy.device)
+                    S = self.policy.prepare_data(S)
 
                     with torch.no_grad():
-                        action_probs = self.policy(S.unsqueeze(0).to(self.policy.device))
+                        action_probs = self.policy(S)
                     A, A_heads = self.policy.follow_policy(action_probs)
                     # Exploratory start for guided episodes to ensure the agent don't fall into a local minimum
                     if i <= self.guided_episodes:
@@ -227,7 +223,7 @@ class Reinforce:
                 # ------------------------------------------------------------------------------------------------------
                 # BATCH PREPARATION
                 # ------------------------------------------------------------------------------------------------------
-                S_batch = torch.stack(S_batch).to(self.policy.device)
+                S_batch = torch.concat(S_batch).to(self.policy.device)
                 A_batch = torch.LongTensor(A_batch).to(self.policy.device)
                 G_batch = torch.FloatTensor(G_batch).to(self.policy.device)
                 self.min_r = min(torch.min(G_batch), self.min_r)
@@ -264,8 +260,8 @@ class Reinforce:
                 nb_action.append(st)
                 nb_mark.append(nbm)
                 successful_marks.append(nbmc)
-                good_choices.append(gt / (st + 0.00001))
-                bad_choices.append(bt / (st + 0.00001))
+                good_choices.append(gt / (gt + bt + 0.00001))
+                bad_choices.append(bt / (gt + bt + 0.00001))
 
                 episode.set_postfix(rewards=rewards[-1], loss=mean_loss,
                                     nb_action=st, nb_mark=nbm, marked_correctly=nbmc)
@@ -286,11 +282,13 @@ class Reinforce:
                 sum_episode_reward = 0
                 S = self.environment.reload_env()
                 while True:
-                    # casting to torch tensor
+                    # State preprocess
                     S = torch.from_numpy(S).float()
+                    S = S.unsqueeze(0).to(self.policy.device)
+                    S = self.policy.prepare_data(S)
 
                     with torch.no_grad():
-                        action_probs = self.policy(S.unsqueeze(0).to(self.policy.device))
+                        action_probs = self.policy(S)
                     # no need to explore, so we select the most probable action
                     A = ""
                     for probs in action_probs:
@@ -313,8 +311,8 @@ class Reinforce:
                 bt = self.environment.nb_bad_choice
                 nb_action.append(st)
                 nb_mark.append(nbm)
-                good_choices.append(gt / (st + 0.00001))
-                bad_choices.append(bt / (st + 0.00001))
+                good_choices.append(gt / (gt + bt + 0.00001))
+                bad_choices.append(bt / (gt + bt + 0.00001))
                 successful_marks.append(self.environment.marked_correctly)
 
                 episode.set_postfix(rewards=rewards[-1], nb_action=st, marked_correctly=nbmc, nb_mark=nbm)
