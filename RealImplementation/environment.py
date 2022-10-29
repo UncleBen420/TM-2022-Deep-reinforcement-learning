@@ -22,7 +22,7 @@ def check_cuda():
                if len(ci) > 0 and re.search(r'(nvidia*:?)|(cuda*:)|(cudnn*:)', ci.lower()) is not None]
     return len(cv_info) > 0
 
-MODEL_RES = 32
+MODEL_RES = 40
 HIST_RES = 100
 ZOOM_DEPTH = 4
 
@@ -94,6 +94,7 @@ class Environment:
         self.sub_images_queue = []
         self.history = []
         self.nb_actions_taken = 0
+        self.nb_choice = 0
         self.nb_bad_choice = 0
         self.nb_good_choice = 0
         self.z = self.max_zoom
@@ -101,10 +102,9 @@ class Environment:
         self.y = 0
         self.nb_mark = 0
 
-        if self.difficulty > 0:
-            self.place_charlie()
-
         self.marked_correctly = False
+        if self.difficulty > 0 and self.evaluation_mode:
+       		self.place_charlie()
 
         self.get_sub_images(self.full_img)
         S = self.get_current_state_deep()
@@ -238,6 +238,7 @@ class Environment:
             x, y, z = pos
 
             self.history.append((x, y, z))
+            self.nb_choice += 1
             if self.evaluation_mode:
                 self.record(x, y, z)
 
@@ -249,8 +250,11 @@ class Environment:
             if z >= self.min_zoom:
                 self.sub_images_queue.append(self.sub_images[counter])
             elif self.sub_img_contain_charlie(x, y, z):
-                reward = (2 << self.min_zoom) - self.nb_actions_taken
+                reward = self.nb_actions_taken / self.nb_choice * 100
                 is_terminal = True
+                if self.difficulty > 0:
+                	self.place_charlie()
+            
 
         return reward, is_terminal
 

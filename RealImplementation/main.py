@@ -120,7 +120,7 @@ if __name__ == '__main__':
     ENVIRONMENT.init_env()
 
     EVALUATOR = Evaluator()
-    REIN = Reinforce(ENVIRONMENT, episodes=2000, val_episode=100)
+    REIN = Reinforce(ENVIRONMENT, episodes=1000, val_episode=100)
     DUMMY = DummyAgent(ENVIRONMENT, val_episode=100)
 
     EVALUATOR.init_plot()

@@ -13,7 +13,7 @@ from tqdm import tqdm
 
 
 class PolicyNet(nn.Module):
-    def __init__(self, img_res, hist_res, n_hidden_nodes=512, n_head_nodes=64, n_kernels=128, n_layers=1,fine_tune=False):
+    def __init__(self, img_res, hist_res, n_hidden_nodes=64, n_head_nodes=16, n_kernels=128, n_layers=1,fine_tune=False):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -26,17 +26,18 @@ class PolicyNet(nn.Module):
         self.hist_res = hist_res
 
         self.backbone = torch.nn.Sequential(
-            torch.nn.Conv2d(in_channels=3, out_channels=n_kernels >> 1, kernel_size=5),
+            torch.nn.Conv2d(in_channels=3, out_channels=n_kernels >> 2, kernel_size=3),
             torch.nn.ReLU(),
             torch.nn.MaxPool2d(2),
-            torch.nn.Conv2d(in_channels=n_kernels >> 1, out_channels=n_kernels, kernel_size=5),
+            torch.nn.Conv2d(in_channels=n_kernels >> 2, out_channels=n_kernels >> 1, kernel_size=3),
             torch.nn.ReLU(),
-            torch.nn.BatchNorm2d(n_kernels),
+            torch.nn.MaxPool2d(2),
+            torch.nn.Conv2d(in_channels=n_kernels >> 1, out_channels=n_kernels, kernel_size=3),
             torch.nn.Flatten(),
         )
 
         self.head = torch.nn.Sequential(
-                torch.nn.Linear(n_kernels << 2, n_hidden_nodes),
+                torch.nn.Linear(n_kernels, n_hidden_nodes),
                 torch.nn.ReLU(),
                 torch.nn.Linear(n_hidden_nodes, n_head_nodes),
                 torch.nn.ReLU(),
@@ -57,8 +58,8 @@ class PolicyNet(nn.Module):
 
     def prepare_data(self, state):
         img = state.permute(0, 3, 1, 2)
-        patches = img.unfold(1, 3, 3).unfold(2, 16, 16).unfold(3, 16, 16)
-        patches = patches.contiguous().view(1, 4, -1, 16, 16)
+        patches = img.unfold(1, 3, 3).unfold(2, 20, 20).unfold(3, 20, 20)
+        patches = patches.contiguous().view(1, 4, -1, 20, 20)
         return patches
 
     def forward(self, state):
@@ -87,9 +88,9 @@ class PolicyNet(nn.Module):
 
 class Reinforce:
 
-    def __init__(self, environment, learning_rate=0.00005,
-                 episodes=100, val_episode=10, guided_episodes=10, gamma=0.7,
-                 dataset_max_size=10, good_ds_max_size=40,
+    def __init__(self, environment, learning_rate=0.00001,
+                 episodes=100, val_episode=10, guided_episodes=3, gamma=0.9,
+                 dataset_max_size=10, good_ds_max_size=30,
                  entropy_coef=0.2, img_res=32, hist_res=32, batch_size=128,
                  early_stopping_threshold=0.0001):
 
@@ -130,19 +131,20 @@ class Reinforce:
                 A_ = A[i]
                 G_ = G[i]
 
-                self.optimizer.zero_grad()
+                
                 loss = 0.
                 for i in range(4):
                     # Calculate loss
+                    self.optimizer.zero_grad()
                     action_probs = self.policy.forward_one_head(S_[:, i])
                     log_probs = torch.log(action_probs)
                     selected_log_probs = G_ * torch.gather(log_probs, 1, A_[:, i].unsqueeze(1)).squeeze()
-                    loss -= selected_log_probs.mean()
+                    policy_loss = - selected_log_probs.mean()
+                    policy_loss.backward()
+                    self.optimizer.step()
+                    loss += policy_loss
 
                 loss /= 4.
-                loss.backward()
-                self.optimizer.step()
-
 
                 sum_loss += loss.item()
                 counter += 1
