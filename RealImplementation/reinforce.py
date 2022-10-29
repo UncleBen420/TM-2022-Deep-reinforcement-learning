@@ -130,19 +130,21 @@ class Reinforce:
                 A_ = A[i]
                 G_ = G[i]
 
-                loss = 0
+                self.optimizer.zero_grad()
+                loss = 0.
                 for i in range(4):
                     # Calculate loss
-                    self.optimizer.zero_grad()
                     action_probs = self.policy.forward_one_head(S_[:, i])
                     log_probs = torch.log(action_probs)
                     selected_log_probs = G_ * torch.gather(log_probs, 1, A_[:, i].unsqueeze(1)).squeeze()
-                    policy_loss = - selected_log_probs.mean()
-                    policy_loss.backward()
-                    self.optimizer.step()
-                    loss += policy_loss
+                    loss -= selected_log_probs.mean()
 
-                sum_loss += loss.item() / 4.
+                loss /= 4.
+                loss.backward()
+                self.optimizer.step()
+
+
+                sum_loss += loss.item()
                 counter += 1
 
         return sum_loss / counter
