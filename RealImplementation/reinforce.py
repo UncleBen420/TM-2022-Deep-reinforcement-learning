@@ -13,14 +13,14 @@ from tqdm import tqdm
 
 
 class PolicyNet(nn.Module):
-    def __init__(self, img_res, hist_res, n_hidden_nodes=64, n_head_nodes=16, n_kernels=128, n_layers=1,fine_tune=False):
+    def __init__(self, img_res, hist_res, n_actions, n_hidden_nodes=128, n_head_nodes=32, n_kernels=128, n_layers=1,fine_tune=False):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         print("RUNNING ON {0}".format(self.device))
 
-        self.action_space = np.arange(2)
+        self.action_space = np.arange(n_actions)
 
         self.img_res = img_res
         self.hist_res = hist_res
@@ -37,11 +37,11 @@ class PolicyNet(nn.Module):
         )
 
         self.head = torch.nn.Sequential(
-                torch.nn.Linear(n_kernels, n_hidden_nodes),
+                torch.nn.Linear(n_kernels * 4, n_hidden_nodes),
                 torch.nn.ReLU(),
                 torch.nn.Linear(n_hidden_nodes, n_head_nodes),
                 torch.nn.ReLU(),
-                torch.nn.Linear(n_head_nodes, 2),
+                torch.nn.Linear(n_head_nodes, n_actions),
                 torch.nn.Softmax(dim=-1)
             )
 
@@ -63,27 +63,15 @@ class PolicyNet(nn.Module):
         return patches
 
     def forward(self, state):
-        probs = []
+        xs = []
         for i in range(4):
-            x = self.backbone(state[:, i])
-            x = self.head(x)
-            probs.append(x)
-        return probs
-
-    def forward_one_head(self, state):
-        x = self.backbone(state)
+            xs.append(self.backbone(state[:, i]))
+        x = torch.concat(xs, 1)
         return self.head(x)
 
-    def follow_policy(self, action_probs):
-        action_per_head = []
-        actions = ""
-        for probs in action_probs:
-            probs = probs.detach().cpu().numpy()[0]
-            action = np.random.choice(self.action_space, p=probs)
-            action_per_head.append(action)
-            actions += str(action)
+    def follow_policy(self, probs):
+        return np.random.choice(self.action_space, p=probs.detach().cpu().numpy()[0])
 
-        return int(actions, 2), action_per_head
 
 
 class Reinforce:
@@ -105,7 +93,7 @@ class Reinforce:
         self.min_r = 0
         self.max_r = 1
         self.guided_episodes = guided_episodes
-        self.policy = PolicyNet(img_res, hist_res)
+        self.policy = PolicyNet(img_res, hist_res, environment.nb_action)
         print(self.policy)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=learning_rate)
         self.early_stopping_threshold = early_stopping_threshold
@@ -131,22 +119,16 @@ class Reinforce:
                 A_ = A[i]
                 G_ = G[i]
 
-                
-                loss = 0.
-                for i in range(4):
-                    # Calculate loss
-                    self.optimizer.zero_grad()
-                    action_probs = self.policy.forward_one_head(S_[:, i])
-                    log_probs = torch.log(action_probs)
-                    selected_log_probs = G_ * torch.gather(log_probs, 1, A_[:, i].unsqueeze(1)).squeeze()
-                    policy_loss = - selected_log_probs.mean()
-                    policy_loss.backward()
-                    self.optimizer.step()
-                    loss += policy_loss
+                # Calculate loss
+                self.optimizer.zero_grad()
+                action_probs = self.policy(S_)
+                log_probs = torch.log(action_probs)
+                selected_log_probs = G_ * torch.gather(log_probs, 1, A_.unsqueeze(1)).squeeze()
+                policy_loss = - selected_log_probs.mean()
+                policy_loss.backward()
+                self.optimizer.step()
 
-                loss /= 4.
-
-                sum_loss += loss.item()
+                sum_loss += policy_loss.item()
                 counter += 1
 
         return sum_loss / counter
@@ -199,15 +181,14 @@ class Reinforce:
 
                     with torch.no_grad():
                         action_probs = self.policy(S)
-                    A, A_heads = self.policy.follow_policy(action_probs)
+                    A = self.policy.follow_policy(action_probs)
                     # Exploratory start for guided episodes to ensure the agent don't fall into a local minimum
                     if i <= self.guided_episodes:
                         A = 15
-                        A_heads = [1, 1, 1, 1]
                     S_prime, R, is_terminal = self.environment.take_action(A)
 
                     S_batch.append(S)
-                    A_batch.append(A_heads)
+                    A_batch.append(A)
                     R_batch.append(R)
 
                     S = S_prime
