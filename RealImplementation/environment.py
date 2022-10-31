@@ -129,7 +129,7 @@ class Environment:
     def place_charlie(self):
         """
         this method place change the charlie's position on the map.
-        """            
+        """     
         while True:
             x = random.randint(0, self.W - 1)
             y = random.randint(0, self.H - 1)
@@ -161,7 +161,12 @@ class Environment:
         self.nb_mark = 0
 
 
-
+        if self.difficulty > 0:
+            self.full_img = self.base_img.copy()
+       	    self.place_charlie()
+        
+        if self.difficulty > 1:
+       	    self.init_env()
 
         self.root = Tree(self.full_img, (self.x, self.y, self.z))
         self.current_node = self.root
@@ -208,15 +213,9 @@ class Environment:
             self.compute_mask_map()
             self.hist_img = cv2.resize(self.full_img, (HIST_RES, HIST_RES))
             
-        elif self.difficulty > 1 and self.evaluation_mode:
-            self.compute_mask_map()
-            self.hist_img = cv2.resize(self.full_img, (HIST_RES, HIST_RES))
         else:
-            self.full_img = self.base_img.copy()
             self.mask = self.base_mask
-
-        if self.difficulty > 0:
-       		self.place_charlie()
+            self.full_img = self.base_img.copy()
 
         self.place_charlie()
         self.compute_mask_map()

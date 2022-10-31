@@ -86,11 +86,11 @@ class Evaluator:
 
 if __name__ == '__main__':
 
-    ENVIRONMENT = environment.Environment("../../Dataset_waldo", difficulty=1)
+    ENVIRONMENT = environment.Environment("../../Dataset_waldo", difficulty=2)
     ENVIRONMENT.init_env()
 
     EVALUATOR = Evaluator()
-    REIN = Reinforce(ENVIRONMENT, episodes=10, val_episode=100)
+    REIN = Reinforce(ENVIRONMENT, episodes=1000, val_episode=100)
     DUMMY = DummyAgent(ENVIRONMENT, val_episode=100)
 
     EVALUATOR.init_plot()

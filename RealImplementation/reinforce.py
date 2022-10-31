@@ -75,7 +75,7 @@ class PolicyNet(nn.Module):
 
 class Reinforce:
 
-    def __init__(self, environment, learning_rate=0.0001,
+    def __init__(self, environment, learning_rate=0.00002,
                  episodes=100, val_episode=100, gamma=0.5,
                  entropy_coef=0.2, beta_coef=0.2,
                  early_stopping_threshold=0.0001, batch_size=256):
