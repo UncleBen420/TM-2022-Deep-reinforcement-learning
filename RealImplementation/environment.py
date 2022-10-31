@@ -12,6 +12,74 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import ndimage
 
+class Tree:
+    def __init__(self, img, pos):
+        x, y, z = pos
+        self.number = -1
+        self.childs = []
+        self.parent = None
+        self.visited = False
+        self.img = img
+        self.resized_img = cv2.resize(img, (MODEL_RES, MODEL_RES)) / 255.
+        self.x = x
+        self.y = y
+        self.z = z
+        self.proba = None
+        
+    def add_child(self, child):
+        child.parent = self
+        self.childs.append(child)
+
+    def get_parent_number(self):
+        return -1 if self.parent is None else self.parent.number
+
+    def get_state(self):
+        imgs = []
+        for child in self.childs:
+            imgs.append(child.resized_img)
+
+        ab = np.concatenate((imgs[0], imgs[1]), axis=0)
+        cd = np.concatenate((imgs[2], imgs[3]), axis=0)
+        state = np.concatenate((ab, cd), axis=1)
+        return np.array(state.squeeze())
+
+    def visit(self, nb_action):
+        if self.visited:
+            return
+        self.resized_img = np.zeros((MODEL_RES, MODEL_RES, 3))
+        self.number = nb_action
+        del(self.img)
+        self.img = None
+
+        self.visited = True
+
+    def get_childs(self, min_zoom):
+
+        if len(self.childs) != 0:
+            return
+
+        if self.z - 1 < min_zoom:
+            return
+
+        sub_z = self.z - 1
+        sub_x = self.x << 1
+        sub_y = self.y << 1
+
+        h = int(self.img.shape[0] / 2)
+        w = int(self.img.shape[1] / 2)
+
+        for i in range(2):
+            for j in range(2):
+                x_ = sub_x + i
+                y_ = sub_y + j
+                child = Tree(self.img[h * j:h + h * j, w * i: w + w * i], (x_, y_, sub_z))
+                self.add_child(child)
+
+    def is_leaf(self):
+        is_leaf = True
+        for child in self.childs:
+            is_leaf *= child.visited
+        return is_leaf
 
 def check_cuda():
     """
@@ -22,7 +90,7 @@ def check_cuda():
                if len(ci) > 0 and re.search(r'(nvidia*:?)|(cuda*:)|(cudnn*:)', ci.lower()) is not None]
     return len(cv_info) > 0
 
-MODEL_RES = 40
+MODEL_RES = 20
 HIST_RES = 100
 ZOOM_DEPTH = 4
 
@@ -33,25 +101,21 @@ class Environment:
     He must not mark place where there is house.
     """
 
-    def __init__(self, dataset_path, nb_max_actions=100, difficulty=0, depth=False):
+    def __init__(self, dataset_path, nb_max_actions=100, difficulty=0):
         self.sub_images_queue = None
         self.base_img = None
         self.gpu_full_img = None
         self.charlie_y = 0
         self.charlie_x = 0
         self.history = None
-        self.policy_hist = {}
         self.heat_map = np.zeros((ZOOM_DEPTH + 1, HIST_RES, HIST_RES))
         self.nb_actions_taken = 0
         self.nb_max_actions = nb_max_actions
-        self.search_style = -1 if depth else 0
         self.zoom_padding = 2
         self.z = 1
         self.x = 0
         self.y = 0
-        self.nb_action = 16
-
-        self.guided = True
+        self.nb_action = 4
         self.cv_cuda = check_cuda()
         self.difficulty = difficulty
         self.charlie = cv2.cvtColor(cv2.imread(os.path.join(dataset_path, "waldo.png")), cv2.COLOR_BGR2RGB)
@@ -59,20 +123,13 @@ class Environment:
         self.mask_list = sorted(os.listdir(os.path.join(dataset_path, "masks")))
         self.dataset_path = dataset_path
         self.evaluation_mode = False
+        self.action_space = np.arange(4)
+
 
     def place_charlie(self):
         """
         this method place change the charlie's position on the map.
-        """
-        if self.difficulty >= 2 and not self.evaluation_mode:
-            angle = random.randint(0, 3)
-            self.full_img = np.rot90(self.base_img, angle)
-            self.mask = np.rot90(self.base_mask, angle)
-            self.compute_mask_map()
-        else:
-            self.full_img = self.base_img.copy()
-            self.mask = self.base_mask
-
+        """            
         while True:
             x = random.randint(0, self.W - 1)
             y = random.randint(0, self.H - 1)
@@ -92,6 +149,7 @@ class Environment:
         del self.history
         del self.sub_images_queue
         self.sub_images_queue = []
+        self.reward_tree = []
         self.history = []
         self.nb_actions_taken = 0
         self.nb_choice = 0
@@ -102,14 +160,14 @@ class Environment:
         self.y = 0
         self.nb_mark = 0
 
-        self.marked_correctly = False
-        if self.difficulty > 0 and self.evaluation_mode:
-       		self.place_charlie()
-
-        self.get_sub_images(self.full_img)
-        S = self.get_current_state_deep()
 
 
+
+        self.root = Tree(self.full_img, (self.x, self.y, self.z))
+        self.current_node = self.root
+        self.current_node.get_childs(self.min_zoom)
+        self.current_node.visit(-1)
+        S = self.current_node.get_state()
         return S
 
     def load_env(self):
@@ -136,13 +194,33 @@ class Environment:
         This method is used to load the image representing the environment to the gpu
         It place charlie on the image has well
         """
-        if self.base_img is None or self.difficulty == 2:
-            self.load_env()
+        self.load_env()
+        if self.difficulty > 1 and not self.evaluation_mode:
+            angle = random.randint(0, 2)
+            cv_angle = [cv2.ROTATE_90_CLOCKWISE, cv2.ROTATE_180, cv2.ROTATE_90_COUNTERCLOCKWISE]
+            if self.cv_cuda:
+                self.full_img = cv2.cuda.rotate(self.base_img.copy(), cv_angle[angle])
+                self.mask = cv2.cuda.rotate(self.base_mask, cv_angle[angle])
+            else:
+                self.full_img = cv2.rotate(self.base_img.copy(), cv_angle[angle])
+                self.mask = cv2.rotate(self.base_mask, cv_angle[angle])
+
+            self.compute_mask_map()
+            self.hist_img = cv2.resize(self.full_img, (HIST_RES, HIST_RES))
+            
+        elif self.difficulty > 1 and self.evaluation_mode:
+            self.compute_mask_map()
+            self.hist_img = cv2.resize(self.full_img, (HIST_RES, HIST_RES))
+        else:
+            self.full_img = self.base_img.copy()
+            self.mask = self.base_mask
+
+        if self.difficulty > 0:
+       		self.place_charlie()
 
         self.place_charlie()
-
-        self.hist_img = cv2.resize(self.full_img, (HIST_RES, HIST_RES))
         self.compute_mask_map()
+        self.hist_img = cv2.resize(self.full_img, (HIST_RES, HIST_RES))
 
     def compute_mask_map(self):
         """
@@ -168,27 +246,6 @@ class Environment:
         int(window * x * self.ratio):
         int((window + window * x) * self.ratio)] += 1
 
-    def get_sub_images(self, img):
-        #if self.cv_cuda:
-        #    self.sub_vision = cv2.cuda.resize(img, (MODEL_RES, MODEL_RES)).download()
-        #else:
-        self.sub_vision = cv2.resize(img, (MODEL_RES, MODEL_RES))
-
-        sub_z = self.z - 1
-        sub_x = self.x << 1
-        sub_y = self.y << 1
-
-        h = int(img.shape[0] / 2)
-        w = int(img.shape[1] / 2)
-        self.sub_images = []
-
-        for i in range(2):
-            for j in range(2):
-                x_ = sub_x + i
-                y_ = sub_y + j
-                self.sub_images.append(((x_, y_, sub_z),
-                                        (img[h * j:h + h * j, w * i: w + w * i])))
-
     def get_current_state_deep(self):
         """
         give to the agent 2 images (the sub image and the hist image). they are squeeze into
@@ -198,14 +255,32 @@ class Environment:
 
         return np.array(self.sub_vision.squeeze() / 255)
 
+    def follow_policy(self, probs):
+        A = np.random.choice(self.action_space, p=probs)
+        p = probs[A]
+        probs[A] = 0.
+        giveaway = p / (np.count_nonzero(probs) + 0.00000001)
+        probs[probs != 0.] += giveaway
+        self.current_node.proba = probs
+        return A
+
+    def exploit(self, probs):
+        A = np.argmax(probs)
+        p = probs[A]
+        probs[A] = 0.
+        giveaway = p / (np.count_nonzero(probs) + 0.00000001)  
+        probs[probs != 0.] += giveaway
+        self.current_node.proba = probs
+        return A
+
     def sub_img_contain_charlie(self, x, y, z):
         """
         This method allow the user to know if the current subgrid contain charlie or not
         :return: true if the sub grid contains charlie.
         """
         window = self.zoom_padding << (z - 1)
-        charlie_w = self.charlie.shape[1]
-        charlie_h = self.charlie.shape[0]
+        charlie_w = self.charlie.shape[1] / 2
+        charlie_h = self.charlie.shape[0] / 2
         return ((x * window <= self.charlie_x < x * window + window - charlie_w or
                 x * window <= self.charlie_x + charlie_w < x * window + window)
                 and
@@ -226,60 +301,52 @@ class Environment:
 
         return False
 
-    def action_selection(self, action, counter=0):
-        if action >= 1:
-            reward, is_terminal = self.action_selection(action >> 1, counter + 1)
-        else:
-            reward = 0.
-            is_terminal = False
-
-        if action % 2:
-            pos, img = self.sub_images[counter]
-            x, y, z = pos
-
-            self.history.append((x, y, z))
-            self.nb_choice += 1
-            if self.evaluation_mode:
-                self.record(x, y, z)
-
-            if self.sub_image_contain_roi(x, y, z):
-                self.nb_good_choice += 1
-            else:
-                self.nb_bad_choice += 1
-
-            if z >= self.min_zoom:
-                self.sub_images_queue.append(self.sub_images[counter])
-            elif self.sub_img_contain_charlie(x, y, z):
-                reward = self.nb_actions_taken / self.nb_choice * 100
-                is_terminal = True
-                if self.difficulty > 0:
-                	self.place_charlie()
-            
-
-        return reward, is_terminal
-
     def take_action(self, action):
-        """
-        This method allow the agent to take an action over the environment.
-        :param action: the number of the action that the agent has take.
-        :return: the next state, the reward, if the state is terminal and a tips of which action the agent should have
-        choose.
-        """
 
-        # check if we are at the maximum zoom possible
-        reward, is_terminal = self.action_selection(action)
+        reward = -1
+        is_terminal = False
+        proba = None
 
-        if len(self.sub_images_queue) <= 0:
-            # for the case if charlie is detected at the last step
-            reward = -1 if not is_terminal else reward
-            is_terminal = True
+        if not self.current_node.childs[action].visited:
+            self.current_node = self.current_node.childs[action]
+
+        self.current_node.get_childs(self.min_zoom)
+        self.current_node.visit(self.nb_actions_taken)
+
+        x = self.current_node.x
+        y = self.current_node.y
+        z = self.current_node.z
+
+        # Different Checks
+        if self.sub_image_contain_roi(x, y, z):
+            self.nb_good_choice += 1
         else:
-            position, img = self.sub_images_queue.pop(self.search_style)
-            self.x, self.y, self.z = position
-            self.get_sub_images(img)
-            self.nb_actions_taken += 1
+            self.nb_bad_choice += 1
+   
+        if z <= self.min_zoom and self.sub_img_contain_charlie(x, y, z):
+            reward = 10
+            is_terminal = True 
 
-        return self.get_current_state_deep(), reward, is_terminal
+        self.history.append((x, y, z))
+
+        if self.evaluation_mode:
+            self.record(x, y, z)
+
+        #if the current node is a leaf we need to go up the tree
+        while self.current_node.is_leaf():
+            if self.current_node.parent is not None:
+                self.current_node = self.current_node.parent 
+                proba = self.current_node.proba
+            else:
+                is_terminal = True
+                break
+
+        S_prime = self.current_node.get_state()
+
+        self.nb_actions_taken += 1
+
+        return S_prime, reward, is_terminal, self.current_node.get_parent_number(), self.current_node.number, proba
+
 
     def get_gif_trajectory(self, name):
         """

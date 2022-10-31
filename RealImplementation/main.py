@@ -11,7 +11,7 @@ from reinforce import Reinforce
 class Evaluator:
 
     def init_plot(self):
-        self.fig, self.axs = plt.subplots(nrows=3, ncols=2, layout="constrained")
+        self.fig, self.axs = plt.subplots(nrows=2, ncols=2, layout="constrained")
         self.box_plot_data_mark = []
         self.box_plot_data_gb = []
         self.names_mark = []
@@ -26,7 +26,7 @@ class Evaluator:
         '''
         print("starting fitting of {0}".format(name))
 
-        losses, rewards, nb_mark, nb_action, successful_marks, good, bad = agent.fit()
+        losses, rewards, nb_action, good, bad = agent.fit()
 
         self.fig.suptitle("hyper parameters selections for {0}".format(name))
 
@@ -39,16 +39,6 @@ class Evaluator:
         self.axs[1][0].set_title('Number of actions took during the episode')
         self.axs[1][0].set_xlabel('nb iteration')
         self.axs[1][0].set_ylabel('nb step')
-
-        self.axs[2][0].plot(nb_mark, label=name)
-        self.axs[2][0].set_title('number of mark action during the episode')
-        self.axs[2][0].set_xlabel('nb iteration')
-        self.axs[2][0].set_ylabel('nb marks')
-
-        self.axs[0][1].plot(successful_marks, label=name)
-        self.axs[0][1].set_title('number of successful mark')
-        self.axs[0][1].set_xlabel('nb iteration')
-        self.axs[0][1].set_ylabel('nb')
 
         base = np.linspace(0.,1, len(good))
         self.axs[1][1].plot(base, good, label=name, color='g')
@@ -59,13 +49,13 @@ class Evaluator:
         self.axs[1][1].set_xlabel('episode')
         self.axs[1][1].set_ylabel('good/bad')
 
-        self.axs[2][1].plot(losses, label=name)
-        self.axs[2][1].set_title('Losses')
-        self.axs[2][1].set_xlabel('nb iteration')
-        self.axs[2][1].set_ylabel('loss')
+        self.axs[0][1].plot(losses, label=name)
+        self.axs[0][1].set_title('Losses')
+        self.axs[0][1].set_xlabel('nb iteration')
+        self.axs[0][1].set_ylabel('loss')
 
     def evaluate(self, agent, name):
-        rewards, nb_mark, nb_action, successful_marks, good, bad = agent.exploit()
+        rewards, nb_action, good, bad = agent.exploit()
 
         self.fig.suptitle("hyper parameters selections for {0}".format(name))
 
@@ -79,35 +69,15 @@ class Evaluator:
         self.axs[1][0].set_xlabel('nb iteration')
         self.axs[1][0].set_ylabel('nb step')
 
-        self.axs[2][0].plot(nb_mark, label=name)
-        self.axs[2][0].set_title('number of mark action during the episode')
-        self.axs[2][0].set_xlabel('nb iteration')
-        self.axs[2][0].set_ylabel('nb marks')
-
-        self.axs[0][1].plot(successful_marks, label=name)
-        self.axs[0][1].set_title('number of successful mark')
-        self.axs[0][1].set_xlabel('nb iteration')
-        self.axs[0][1].set_ylabel('nb')
-
         self.box_plot_data_gb.append(good)
         self.names_gb.append(name + "good")
         self.box_plot_data_gb.append(bad)
         self.names_gb.append(name + "bad")
 
-        index = np.where(np.array(nb_mark) > 0)
-        self.box_plot_data_mark.append(np.divide(np.array(successful_marks)[index], np.array(nb_mark)[index]))
-        self.names_mark.append(name)
-
     def show_eval(self):
         self.axs[1][1].boxplot(self.box_plot_data_gb, labels=self.names_gb)
         self.axs[1][1].set_title('good/action repartition')
         self.axs[1][1].legend()
-
-        self.axs[2][1].boxplot(self.box_plot_data_mark, labels=self.names_mark)
-        self.axs[2][1].set_title('mark precision')
-        self.axs[2][1].legend()
-        self.axs[0][1].legend(bbox_to_anchor=(1.3, 0.6))
-        plt.show()
 
     def show(self):
         self.axs[0][1].legend(bbox_to_anchor=(1.3, 0.6))
@@ -116,11 +86,11 @@ class Evaluator:
 
 if __name__ == '__main__':
 
-    ENVIRONMENT = environment.Environment("../../Dataset_waldo", difficulty=1, depth=True)
+    ENVIRONMENT = environment.Environment("../../Dataset_waldo", difficulty=1)
     ENVIRONMENT.init_env()
 
     EVALUATOR = Evaluator()
-    REIN = Reinforce(ENVIRONMENT, episodes=1000, val_episode=100)
+    REIN = Reinforce(ENVIRONMENT, episodes=10, val_episode=100)
     DUMMY = DummyAgent(ENVIRONMENT, val_episode=100)
 
     EVALUATOR.init_plot()

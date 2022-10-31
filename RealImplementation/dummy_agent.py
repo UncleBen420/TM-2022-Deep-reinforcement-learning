@@ -14,8 +14,6 @@ class DummyAgent:
     def exploit(self):
         rewards = []
         nb_action = []
-        nb_mark = []
-        successful_marks = []
         good_choices = []
         bad_choices = []
 
@@ -26,8 +24,8 @@ class DummyAgent:
                 while True:
                     # casting to torch tensor
 
-                    A, A_task = random.randint(0, self.action_space - 1), random.randint(0, 1)
-                    S_prime, R, is_terminal = self.environment.take_action(A)
+                    A = random.randint(0, self.action_space - 1)
+                    S_prime, R, is_terminal, _, _, _ = self.environment.take_action(A)
 
                     sum_episode_reward += R
                     if is_terminal:
@@ -35,19 +33,15 @@ class DummyAgent:
 
                 rewards.append(sum_episode_reward)
 
-                nbm = self.environment.nb_mark
-                nbmc = self.environment.marked_correctly
                 st = self.environment.nb_actions_taken
                 gt = self.environment.nb_good_choice
                 bt = self.environment.nb_bad_choice
                 nb_action.append(st)
-                nb_mark.append(nbm)
                 good_choices.append(gt / (gt + bt + 0.00001))
                 bad_choices.append(bt / (gt + bt + 0.00001))
-                successful_marks.append(self.environment.marked_correctly)
 
-                episode.set_postfix(rewards=rewards[-1], nb_action=st, marked_correctly=nbmc, nb_mark=nbm)
+                episode.set_postfix(rewards=rewards[-1], nb_action=st)
 
-        return rewards, nb_mark, nb_action, successful_marks, good_choices, bad_choices
+        return rewards, nb_action, good_choices, bad_choices
 
 
