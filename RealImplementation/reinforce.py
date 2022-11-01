@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from torch import nn
 from torch.autograd import Variable
-
+from torch.optim.lr_scheduler import StepLR
 from torch.distributions import Categorical
 from torchvision import models
 from torchvision import transforms
@@ -24,9 +24,11 @@ class PolicyNet(nn.Module):
 
         self.backbone = torch.nn.Sequential(
             torch.nn.Conv2d(in_channels=3, out_channels=n_kernels >> 2, kernel_size=3),
+            torch.nn.Dropout(0.1),
             torch.nn.ReLU(),
             torch.nn.MaxPool2d(2),
             torch.nn.Conv2d(in_channels=n_kernels >> 2, out_channels=n_kernels >> 1, kernel_size=3),
+            torch.nn.Dropout(0.1),
             torch.nn.ReLU(),
             torch.nn.MaxPool2d(2),
             torch.nn.Conv2d(in_channels=n_kernels >> 1, out_channels=n_kernels, kernel_size=3),
@@ -75,10 +77,10 @@ class PolicyNet(nn.Module):
 
 class Reinforce:
 
-    def __init__(self, environment, learning_rate=0.00002,
-                 episodes=100, val_episode=100, gamma=0.5,
-                 entropy_coef=0.2, beta_coef=0.2,
-                 early_stopping_threshold=0.0001, batch_size=256):
+    def __init__(self, environment, learning_rate=0.001,
+                 episodes=100, val_episode=100, gamma=0.6,
+                 entropy_coef=0.07, beta_coef=0.2,
+                 lr_gamma=0.5, batch_size=256):
 
         self.gamma = gamma
         self.environment = environment
@@ -93,7 +95,7 @@ class Reinforce:
         self.batch_size = batch_size
         print(self.policy)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=learning_rate)
-        self.early_stopping_threshold = early_stopping_threshold
+        self.scheduler = StepLR(self.optimizer, step_size=100, gamma=lr_gamma)
 
     def minmax_scaling(self, x):
         return (x - self.min_r) / (self.max_r - self.min_r)
@@ -120,22 +122,32 @@ class Reinforce:
             self.optimizer.zero_grad()
             action_probs, V = self.policy(S_)
             
+            # TD error is scaled to ensure no exploding gradient
+            # also it stabalise the learning : https://arxiv.org/pdf/2105.05347.pdf
             TD_error = torch.sub(G_.unsqueeze(1), V.detach())
+            self.min_r = min(torch.min(TD_error), self.min_r)
+            self.max_r = max(torch.max(TD_error), self.max_r)
+            TD_error = self.minmax_scaling(TD_error)
             
             log_probs = torch.log(action_probs)
+            log_probs[torch.isinf(log_probs)] = 0
+
             selected_log_probs = TD_error * torch.gather(log_probs, 1, A_.unsqueeze(1))
 
-            entropy_loss = self.beta_coef * (action_probs * log_probs).sum(1).mean()
-            value_loss = self.entropy_coef * torch.nn.MSELoss()(V.detach(), G_.unsqueeze(1).detach())
+            entropy_loss =  self.entropy_coef * (action_probs * log_probs).sum(1).mean()
 
+            value_loss = self.beta_coef * torch.nn.MSELoss()(V, G_.unsqueeze(1))
             policy_loss = - selected_log_probs.mean()
-            total_policy_loss = policy_loss + entropy_loss + value_loss
-            total_policy_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 100.)
+            total_policy_loss = policy_loss + entropy_loss
+
+            total_policy_loss.backward(retain_graph=True)
+            value_loss.backward()
+            torch.nn.utils.clip_grad_value_(self.policy.parameters(), 100.)
             self.optimizer.step()
 
             sum_loss += total_policy_loss.item()
             counter += 1
+        self.scheduler.step()
 
         return sum_loss / counter
 
@@ -187,9 +199,11 @@ class Reinforce:
                     if existing_proba is None:
                         with torch.no_grad():
                             action_probs, V = self.policy(S)
-                            action_probs = action_probs.detach().cpu().numpy()[0]
+                            action_probs = action_probs.detach().cpu().numpy()[0]                           
                     else:
                         action_probs = existing_proba
+                    
+                    action_probs /= action_probs.sum() # resovle an know issue with numpy
                     A = self.environment.follow_policy(action_probs)
 
                     sum_v += V.item()
@@ -218,10 +232,6 @@ class Reinforce:
                 S_batch = torch.concat(S_batch).to(self.policy.device)
                 A_batch = torch.LongTensor(A_batch).to(self.policy.device)
                 G_batch = torch.FloatTensor(G_batch).to(self.policy.device)
-                self.min_r = min(torch.min(G_batch), self.min_r)
-                self.max_r = max(torch.max(G_batch), self.max_r)
-                G_batch = self.minmax_scaling(G_batch)
-
 
                 # ------------------------------------------------------------------------------------------------------
                 # MODEL OPTIMISATION
@@ -251,6 +261,7 @@ class Reinforce:
         nb_action = []
         good_choices = []
         bad_choices = []
+        conv_policy = []
 
         with tqdm(range(self.val_episode), unit="episode") as episode:
             for i in episode:
@@ -272,7 +283,7 @@ class Reinforce:
                     #    V = self.policy.V(S_v)
                     # no need to explore, so we select the most probable action
                     A = self.environment.exploit(probs)
-                    S_prime, R, is_terminal, _, _, proba = self.environment.take_action(A)
+                    S_prime, R, is_terminal, _, _, proba = self.environment.take_action(A, V.item())
 
                     existing_proba = proba
 
@@ -282,7 +293,7 @@ class Reinforce:
                         break
 
                 rewards.append(sum_episode_reward)
-
+                conv_policy.append(self.environment.conventional_policy_nb_step)
                 st = self.environment.nb_actions_taken
                 gt = self.environment.nb_good_choice
                 bt = self.environment.nb_bad_choice
@@ -292,6 +303,6 @@ class Reinforce:
 
                 episode.set_postfix(rewards=rewards[-1], nb_action=st)
 
-        return rewards, nb_action, good_choices, bad_choices
+        return rewards, nb_action, good_choices, bad_choices, conv_policy
 
 

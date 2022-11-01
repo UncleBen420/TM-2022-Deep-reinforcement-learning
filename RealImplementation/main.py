@@ -55,7 +55,9 @@ class Evaluator:
         self.axs[0][1].set_ylabel('loss')
 
     def evaluate(self, agent, name):
-        rewards, nb_action, good, bad = agent.exploit()
+        rewards, nb_action, good, bad, conventionel = agent.exploit()
+        if len(conventionel) > 0:
+            self.axs[1][0].plot(conventionel, label="conventional policy")
 
         self.fig.suptitle("hyper parameters selections for {0}".format(name))
 
@@ -70,14 +72,17 @@ class Evaluator:
         self.axs[1][0].set_ylabel('nb step')
 
         self.box_plot_data_gb.append(good)
-        self.names_gb.append(name + "good")
+        self.names_gb.append(name + " good")
         self.box_plot_data_gb.append(bad)
-        self.names_gb.append(name + "bad")
+        self.names_gb.append(name + " bad")
 
     def show_eval(self):
         self.axs[1][1].boxplot(self.box_plot_data_gb, labels=self.names_gb)
         self.axs[1][1].set_title('good/action repartition')
         self.axs[1][1].legend()
+        self.axs[0][0].legend()
+        self.axs[1][0].legend()
+        plt.show()
 
     def show(self):
         self.axs[0][1].legend(bbox_to_anchor=(1.3, 0.6))
@@ -86,7 +91,7 @@ class Evaluator:
 
 if __name__ == '__main__':
 
-    ENVIRONMENT = environment.Environment("../../Dataset_waldo", difficulty=2)
+    ENVIRONMENT = environment.Environment("../../Dataset_waldo", difficulty=0)
     ENVIRONMENT.init_env()
 
     EVALUATOR = Evaluator()
@@ -96,22 +101,39 @@ if __name__ == '__main__':
     EVALUATOR.init_plot()
     EVALUATOR.fit(REIN, "Reinforce")
     EVALUATOR.show()
-
     EVALUATOR.init_plot()
     EVALUATOR.evaluate(DUMMY, "Dummy agent")
     ENVIRONMENT.evaluation_mode = True
     EVALUATOR.evaluate(REIN, "Reinforce")
     EVALUATOR.show_eval()
 
+    def transparent_cmap(cmap, N=255):
+        "Copy colormap and set alpha values"
+
+        mycmap = cmap
+        mycmap._init()
+        mycmap._lut[:,-1] = np.linspace(0, 0.8, N+4)
+        return mycmap
+
+    mycmap = transparent_cmap(plt.cm.Reds)
+    fig, ax = plt.subplots(1, 1)
+    ax.imshow(ENVIRONMENT.hist_img)
+    x, y = np.meshgrid(np.linspace(0, 1, ENVIRONMENT.hist_img.shape[0]), 
+                       np.linspace(0, 1, ENVIRONMENT.hist_img.shape[1]))
+    cb = ax.contourf(x, y, ENVIRONMENT.V_map, 15, cmap=mycmap)
+    plt.colorbar(cb)
+    plt.show()
+
     fig = plt.figure()
     ax = plt.axes(projection="3d")
     policy = ENVIRONMENT.heat_map
+
     x, y = np.meshgrid(np.linspace(0, 1, policy.shape[1]), np.linspace(0, 1, policy.shape[2]))
     vmin = np.max(policy)
     vmax = np.max(policy)
 
     for i in range(policy.shape[0]):
-        cset = ax.contourf(x, y, policy[i], 100, zdir='z', offset=i * 50, alpha=0.4)
+        cset = ax.contourf(x, y, policy[i], 100, zdir='z', offset=i * 50, cmap=mycmap)
     cset = ax.contourf(x, y, cv2.cvtColor(ENVIRONMENT.hist_img, cv2.COLOR_BGR2GRAY), 100, zdir='z', cmap='Greys_r',offset=0)
     plt.show()
 

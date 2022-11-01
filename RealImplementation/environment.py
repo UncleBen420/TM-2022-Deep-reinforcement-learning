@@ -108,7 +108,6 @@ class Environment:
         self.charlie_y = 0
         self.charlie_x = 0
         self.history = None
-        self.heat_map = np.zeros((ZOOM_DEPTH + 1, HIST_RES, HIST_RES))
         self.nb_actions_taken = 0
         self.nb_max_actions = nb_max_actions
         self.zoom_padding = 2
@@ -139,6 +138,12 @@ class Environment:
                 self.full_img[self.charlie_y:self.charlie_y + self.charlie.shape[0],
                 self.charlie_x:self.charlie_x + self.charlie.shape[1]] = self.charlie
                 break
+        
+        pad = 2 ** self.min_zoom
+        nb_line = self.W / pad
+        nb_col = int(self.charlie_y / pad)
+        last = int(self.charlie_x / pad)
+        self.conventional_policy_nb_step = nb_line * nb_col + last + 1
 
     def reload_env(self):
         """
@@ -160,7 +165,6 @@ class Environment:
         self.y = 0
         self.nb_mark = 0
 
-
         if self.difficulty > 0:
             self.full_img = self.base_img.copy()
        	    self.place_charlie()
@@ -173,60 +177,57 @@ class Environment:
         self.current_node.get_childs(self.min_zoom)
         self.current_node.visit(-1)
         S = self.current_node.get_state()
+
         return S
-
-    def load_env(self):
-        """
-        This method read a image file and the mask (where waldo can be placed).
-        :param img: image representing the environment.
-        :param mask: image corresponding to the mask where waldo can be placed.
-        """
-        index = random.randint(0, len(self.image_list) - 1)
-        img = os.path.join(self.dataset_path, "images", self.image_list[index])
-        mask = os.path.join(self.dataset_path, "masks", self.mask_list[index])
-
-        self.base_img = cv2.cvtColor(cv2.imread(img), cv2.COLOR_BGR2RGB)
-        self.H, self.W, self.channels = self.base_img.shape
-        self.ratio = HIST_RES / self.H
-        self.base_mask = cv2.imread(mask)
-        self.max_distance = math.sqrt(self.W ** 2 + self.H ** 2)
-        min_dim = np.min([self.W, self.H])
-        self.max_zoom = int(math.log(min_dim, 2))
-        self.min_zoom = self.max_zoom - ZOOM_DEPTH
 
     def init_env(self):
         """
         This method is used to load the image representing the environment to the gpu
         It place charlie on the image has well
         """
-        self.load_env()
-        if self.difficulty > 1 and not self.evaluation_mode:
-            angle = random.randint(0, 2)
-            cv_angle = [cv2.ROTATE_90_CLOCKWISE, cv2.ROTATE_180, cv2.ROTATE_90_COUNTERCLOCKWISE]
-            if self.cv_cuda:
-                self.full_img = cv2.cuda.rotate(self.base_img.copy(), cv_angle[angle])
-                self.mask = cv2.cuda.rotate(self.base_mask, cv_angle[angle])
-            else:
-                self.full_img = cv2.rotate(self.base_img.copy(), cv_angle[angle])
-                self.mask = cv2.rotate(self.base_mask, cv_angle[angle])
 
-            self.compute_mask_map()
-            self.hist_img = cv2.resize(self.full_img, (HIST_RES, HIST_RES))
-            
-        else:
-            self.mask = self.base_mask
-            self.full_img = self.base_img.copy()
+        index = random.randint(0, len(self.image_list) - 1)
+        img = os.path.join(self.dataset_path, "images", self.image_list[index])
+        mask = os.path.join(self.dataset_path, "masks", self.mask_list[index])
+
+        self.base_img = cv2.cvtColor(cv2.imread(img), cv2.COLOR_BGR2RGB)
+        self.base_mask = cv2.imread(mask)
+        self.H, self.W, self.channels = self.base_img.shape
+        # check which dimention is the bigger
+        max_ = np.max([self.W, self.H])
+        # check that the image is divisble by 2
+        self.max_zoom = int(math.log(max_, 2))
+        if 2 ** self.max_zoom < max_:
+            self.max_zoom += 1
+            max_ = 2 ** self.max_zoom
+
+        pad = max_ - np.max([self.W, self.H])
+
+        self.base_img  = cv2.copyMakeBorder(self.base_img, 0, max_ - self.H, 0, max_ - self.W, cv2.BORDER_CONSTANT, None, value = 0)
+        self.base_mask = cv2.copyMakeBorder(self.base_mask, 0, max_ - self.H, 0, max_ - self.W, cv2.BORDER_CONSTANT, None, value = [255, 255, 255])
+        self.W = max_
+        self.H = max_
+        self.ratio = HIST_RES / self.H
+        self.max_zoom = int(math.log(self.W, 2))
+        self.min_zoom = self.max_zoom - ZOOM_DEPTH
+
+        self.mask = self.base_mask
+        self.full_img = self.base_img.copy()
 
         self.place_charlie()
         self.compute_mask_map()
         self.hist_img = cv2.resize(self.full_img, (HIST_RES, HIST_RES))
+        self.heat_map = np.zeros((ZOOM_DEPTH + 1, HIST_RES, HIST_RES))
+        self.V_map = np.zeros((HIST_RES, HIST_RES))
+
 
     def compute_mask_map(self):
         """
         Compute the sub grid at the agent position given the x, y and z axis.
         """
-        h = int(self.H / 100)
-        w = int(self.W / 100)
+        pad = int(self.H / 100)
+        h = int(self.H / pad)
+        w = int(self.W / pad)
 
         mask_map = cv2.cvtColor(cv2.resize(self.mask, (h, w)), cv2.COLOR_BGR2GRAY)
 
@@ -235,24 +236,20 @@ class Environment:
 
         _, mask_map = cv2.threshold(mask_map, 10, 255, cv2.THRESH_BINARY)
         self.ROI = np.array(np.where(mask_map == False))
-        self.ROI[0, :] *= 100
-        self.ROI[1, :] *= 100
+        self.ROI[0, :] *= pad
+        self.ROI[1, :] *= pad
 
-    def record(self, x, y, z):
+    def record(self, x, y, z, V):
         window = self.zoom_padding << (z - 1)
         self.heat_map[z - self.min_zoom + 1][int(window * y * self.ratio):
                       int((window + window * y) * self.ratio),
         int(window * x * self.ratio):
         int((window + window * x) * self.ratio)] += 1
 
-    def get_current_state_deep(self):
-        """
-        give to the agent 2 images (the sub image and the hist image). they are squeeze into
-        a single array.
-        :return: the current state.
-        """
+        if z <= self.min_zoom:
+            self.V_map[int(window * y * self.ratio): int((window + window * y) * self.ratio),
+                   int(window * x * self.ratio): int((window + window * x) * self.ratio)] += V
 
-        return np.array(self.sub_vision.squeeze() / 255)
 
     def follow_policy(self, probs):
         A = np.random.choice(self.action_space, p=probs)
@@ -277,9 +274,11 @@ class Environment:
         This method allow the user to know if the current subgrid contain charlie or not
         :return: true if the sub grid contains charlie.
         """
+        
         window = self.zoom_padding << (z - 1)
         charlie_w = self.charlie.shape[1] / 2
         charlie_h = self.charlie.shape[0] / 2
+
         return ((x * window <= self.charlie_x < x * window + window - charlie_w or
                 x * window <= self.charlie_x + charlie_w < x * window + window)
                 and
@@ -300,7 +299,7 @@ class Environment:
 
         return False
 
-    def take_action(self, action):
+    def take_action(self, action, V=0.):
 
         reward = -1
         is_terminal = False
@@ -329,7 +328,7 @@ class Environment:
         self.history.append((x, y, z))
 
         if self.evaluation_mode:
-            self.record(x, y, z)
+            self.record(x, y, z, V)
 
         #if the current node is a leaf we need to go up the tree
         while self.current_node.is_leaf():

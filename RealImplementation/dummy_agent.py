@@ -42,6 +42,6 @@ class DummyAgent:
 
                 episode.set_postfix(rewards=rewards[-1], nb_action=st)
 
-        return rewards, nb_action, good_choices, bad_choices
+        return rewards, nb_action, good_choices, bad_choices, []
 
 
