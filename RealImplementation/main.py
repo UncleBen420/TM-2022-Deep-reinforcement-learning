@@ -3,10 +3,11 @@ The goal of this program is to allow user to evaluate 3 different RL algorithm o
 """
 import numpy as np
 from matplotlib import pyplot as plt
-import cv2
 import environment
 from dummy_agent import DummyAgent
 from reinforce import Reinforce
+import cv2
+import seaborn as sns
 
 class Evaluator:
 
@@ -55,9 +56,11 @@ class Evaluator:
         self.axs[0][1].set_ylabel('loss')
 
     def evaluate(self, agent, name):
-        rewards, nb_action, good, bad, conventionel = agent.exploit()
-        if len(conventionel) > 0:
-            self.axs[1][0].plot(conventionel, label="conventional policy")
+        rewards, nb_action, good, bad, conventional, time = agent.exploit()
+        if len(conventional) > 0:
+            self.axs[1][0].plot(conventional, label="conventional policy")
+            time_conventional = np.array(conventional) * np.mean(np.array(time) / np.array(nb_action))
+            self.axs[0][1].plot(time_conventional, label="conventional policy")
 
         self.fig.suptitle("hyper parameters selections for {0}".format(name))
 
@@ -71,6 +74,12 @@ class Evaluator:
         self.axs[1][0].set_xlabel('nb iteration')
         self.axs[1][0].set_ylabel('nb step')
 
+        self.axs[0][1].plot(time, label=name)
+        self.axs[0][1].set_title('Time take for one episode')
+        self.axs[0][1].set_xlabel('nb iteration')
+        self.axs[0][1].set_ylabel('time')
+
+
         self.box_plot_data_gb.append(good)
         self.names_gb.append(name + " good")
         self.box_plot_data_gb.append(bad)
@@ -82,6 +91,7 @@ class Evaluator:
         self.axs[1][1].legend()
         self.axs[0][0].legend()
         self.axs[1][0].legend()
+        self.axs[0][1].legend()
         plt.show()
 
     def show(self):
@@ -91,21 +101,50 @@ class Evaluator:
 
 if __name__ == '__main__':
 
-    ENVIRONMENT = environment.Environment("../../Dataset_waldo", difficulty=0)
-    ENVIRONMENT.init_env()
+    # ------------------------------------------------------------------------------------------------------------------
+    # Initialise the environment
+    # ------------------------------------------------------------------------------------------------------------------
 
+    ENVIRONMENT = environment.Environment("../../Dataset_waldo_full", difficulty=2)
+    ENVIRONMENT.init_env()
     EVALUATOR = Evaluator()
     REIN = Reinforce(ENVIRONMENT, episodes=1000, val_episode=100)
     DUMMY = DummyAgent(ENVIRONMENT, val_episode=100)
 
+    # ------------------------------------------------------------------------------------------------------------------
+    # Train the agent
+    # ------------------------------------------------------------------------------------------------------------------
+
     EVALUATOR.init_plot()
     EVALUATOR.fit(REIN, "Reinforce")
     EVALUATOR.show()
+
+    # ------------------------------------------------------------------------------------------------------------------
+    # Evaluate the agent
+    # ------------------------------------------------------------------------------------------------------------------
+
     EVALUATOR.init_plot()
     EVALUATOR.evaluate(DUMMY, "Dummy agent")
     ENVIRONMENT.evaluation_mode = True
     EVALUATOR.evaluate(REIN, "Reinforce")
     EVALUATOR.show_eval()
+
+    # ------------------------------------------------------------------------------------------------------------------
+    # Plot Agent interest map
+    # ------------------------------------------------------------------------------------------------------------------
+
+    x, y = np.meshgrid(np.linspace(0, 1, ENVIRONMENT.hist_img.shape[0]),
+                       np.linspace(0, 1, ENVIRONMENT.hist_img.shape[1]))
+    cb = plt.contourf(x, y, ENVIRONMENT.V_map, 15, cmap="gist_heat")
+
+    plt.colorbar(cb)
+    plt.imshow(ENVIRONMENT.hist_img)
+    plt.imshow(ENVIRONMENT.V_map, cmap="gist_heat", alpha=0.4)
+    plt.show()
+
+    # ------------------------------------------------------------------------------------------------------------------
+    # Plot Agent sub image visited
+    # ------------------------------------------------------------------------------------------------------------------
 
     def transparent_cmap(cmap, N=255):
         "Copy colormap and set alpha values"
@@ -116,26 +155,23 @@ if __name__ == '__main__':
         return mycmap
 
     mycmap = transparent_cmap(plt.cm.Reds)
-    fig, ax = plt.subplots(1, 1)
-    ax.imshow(ENVIRONMENT.hist_img)
-    x, y = np.meshgrid(np.linspace(0, 1, ENVIRONMENT.hist_img.shape[0]), 
-                       np.linspace(0, 1, ENVIRONMENT.hist_img.shape[1]))
-    cb = ax.contourf(x, y, ENVIRONMENT.V_map, 15, cmap=mycmap)
-    plt.colorbar(cb)
-    plt.show()
 
     fig = plt.figure()
     ax = plt.axes(projection="3d")
     policy = ENVIRONMENT.heat_map
 
     x, y = np.meshgrid(np.linspace(0, 1, policy.shape[1]), np.linspace(0, 1, policy.shape[2]))
-    vmin = np.max(policy)
-    vmax = np.max(policy)
 
     for i in range(policy.shape[0]):
-        cset = ax.contourf(x, y, policy[i], 100, zdir='z', offset=i * 50, cmap=mycmap)
-    cset = ax.contourf(x, y, cv2.cvtColor(ENVIRONMENT.hist_img, cv2.COLOR_BGR2GRAY), 100, zdir='z', cmap='Greys_r',offset=0)
+        _ = ax.contourf(x, y, policy[i], 100, zdir='z', offset=i * 50, cmap=mycmap)
+
+    _ = ax.contourf(x,
+                    y,
+                    cv2.cvtColor(ENVIRONMENT.hist_img, cv2.COLOR_BGR2GRAY),
+                    100,
+                    zdir='z',
+                    cmap='Greys_r',
+                    offset=49)
     plt.show()
 
-
-    ENVIRONMENT.get_gif_trajectory("haha.gif")
+    ENVIRONMENT.get_gif_trajectory("real_implementation_trajectory.gif")

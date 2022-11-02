@@ -1,4 +1,6 @@
 import random
+import time
+
 import numpy as np
 import torch
 from torch import nn
@@ -10,7 +12,7 @@ from torchvision import transforms
 from tqdm import tqdm
 
 class PolicyNet(nn.Module):
-    def __init__(self, img_res=40, n_actions=4, n_hidden_nodes=1024, n_kernels=128):
+    def __init__(self, img_res=40, n_hidden_nodes=1024, n_kernels=64):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -24,11 +26,11 @@ class PolicyNet(nn.Module):
 
         self.backbone = torch.nn.Sequential(
             torch.nn.Conv2d(in_channels=3, out_channels=n_kernels >> 2, kernel_size=3),
-            torch.nn.Dropout(0.1),
+            #torch.nn.Dropout(0.1),
             torch.nn.ReLU(),
             torch.nn.MaxPool2d(2),
             torch.nn.Conv2d(in_channels=n_kernels >> 2, out_channels=n_kernels >> 1, kernel_size=3),
-            torch.nn.Dropout(0.1),
+            #torch.nn.Dropout(0.1),
             torch.nn.ReLU(),
             torch.nn.MaxPool2d(2),
             torch.nn.Conv2d(in_channels=n_kernels >> 1, out_channels=n_kernels, kernel_size=3),
@@ -39,17 +41,19 @@ class PolicyNet(nn.Module):
                 torch.nn.Linear(n_kernels * 4, n_hidden_nodes),
                 torch.nn.ReLU(),
                 torch.nn.Linear(n_hidden_nodes, n_hidden_nodes >> 2),
+                torch.nn.ReLU(),
+                torch.nn.Linear(n_hidden_nodes >> 2, n_hidden_nodes >> 3),
                 torch.nn.ReLU()
             )
 
         self.head = torch.nn.Sequential(
-                torch.nn.Linear(n_hidden_nodes >> 2, 4),
+                torch.nn.Linear(n_hidden_nodes >> 3, 4),
                 torch.nn.Softmax(dim=-1)
             )
 
             
         self.value_head = torch.nn.Sequential(
-                torch.nn.Linear(n_hidden_nodes >> 2, 1)
+                torch.nn.Linear(n_hidden_nodes >> 3, 1)
             )
             
         self.backbone.to(self.device)
@@ -78,8 +82,8 @@ class PolicyNet(nn.Module):
 class Reinforce:
 
     def __init__(self, environment, learning_rate=0.001,
-                 episodes=100, val_episode=100, gamma=0.6,
-                 entropy_coef=0.07, beta_coef=0.2,
+                 episodes=100, val_episode=100, gamma=0.4,
+                 entropy_coef=0.01, beta_coef=0.01,
                  lr_gamma=0.5, batch_size=256):
 
         self.gamma = gamma
@@ -104,9 +108,6 @@ class Reinforce:
 
         sum_loss = 0.
         counter = 0.
-
-        #for batch in dataset:
-
         S, A, G = batch
         S = S.split(self.batch_size)
         A = A.split(self.batch_size)
@@ -262,12 +263,14 @@ class Reinforce:
         good_choices = []
         bad_choices = []
         conv_policy = []
+        time_by_episode = []
 
         with tqdm(range(self.val_episode), unit="episode") as episode:
             for i in episode:
                 sum_episode_reward = 0
                 S = self.environment.reload_env()
                 existing_proba = None
+                start_time = time.time()
                 while True:
                     # State preprocess
                     S = torch.from_numpy(S).float()
@@ -280,8 +283,9 @@ class Reinforce:
                             probs = probs.detach().cpu().numpy()[0]
                     else:
                         probs = existing_proba
-                    #    V = self.policy.V(S_v)
+
                     # no need to explore, so we select the most probable action
+                    probs /= probs.sum()
                     A = self.environment.exploit(probs)
                     S_prime, R, is_terminal, _, _, proba = self.environment.take_action(A, V.item())
 
@@ -291,18 +295,19 @@ class Reinforce:
                     sum_episode_reward += R
                     if is_terminal:
                         break
-
+                done_time = time.time()
                 rewards.append(sum_episode_reward)
                 conv_policy.append(self.environment.conventional_policy_nb_step)
                 st = self.environment.nb_actions_taken
                 gt = self.environment.nb_good_choice
                 bt = self.environment.nb_bad_choice
                 nb_action.append(st)
+                time_by_episode.append(done_time - start_time)
                 good_choices.append(gt / (gt + bt + 0.00001))
                 bad_choices.append(bt / (gt + bt + 0.00001))
 
                 episode.set_postfix(rewards=rewards[-1], nb_action=st)
 
-        return rewards, nb_action, good_choices, bad_choices, conv_policy
+        return rewards, nb_action, good_choices, bad_choices, conv_policy, time_by_episode
 
 

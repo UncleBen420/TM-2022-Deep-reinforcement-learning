@@ -5,12 +5,10 @@ import math
 import os
 import random
 import re
-from enum import Enum
 import cv2
 import imageio
-import matplotlib.pyplot as plt
 import numpy as np
-from scipy import ndimage
+
 
 class Tree:
     def __init__(self, img, pos):
@@ -25,7 +23,7 @@ class Tree:
         self.y = y
         self.z = z
         self.proba = None
-        
+
     def add_child(self, child):
         child.parent = self
         self.childs.append(child)
@@ -48,7 +46,7 @@ class Tree:
             return
         self.resized_img = np.zeros((MODEL_RES, MODEL_RES, 3))
         self.number = nb_action
-        del(self.img)
+        del (self.img)
         self.img = None
 
         self.visited = True
@@ -81,6 +79,7 @@ class Tree:
             is_leaf *= child.visited
         return is_leaf
 
+
 def check_cuda():
     """
     check if opencv can use cuda
@@ -89,6 +88,7 @@ def check_cuda():
     cv_info = [re.sub('\s+', ' ', ci.strip()) for ci in cv2.getBuildInformation().strip().split('\n')
                if len(ci) > 0 and re.search(r'(nvidia*:?)|(cuda*:)|(cudnn*:)', ci.lower()) is not None]
     return len(cv_info) > 0
+
 
 MODEL_RES = 20
 HIST_RES = 100
@@ -101,7 +101,13 @@ class Environment:
     He must not mark place where there is house.
     """
 
-    def __init__(self, dataset_path, nb_max_actions=100, difficulty=0):
+    def __init__(self, dataset_path, difficulty=0):
+        self.current_node = None
+        self.nb_good_choice = None
+        self.nb_bad_choice = None
+        self.conventional_policy_nb_step = None
+        self.full_img = None
+        self.root = None
         self.sub_images_queue = None
         self.base_img = None
         self.gpu_full_img = None
@@ -109,11 +115,7 @@ class Environment:
         self.charlie_x = 0
         self.history = None
         self.nb_actions_taken = 0
-        self.nb_max_actions = nb_max_actions
         self.zoom_padding = 2
-        self.z = 1
-        self.x = 0
-        self.y = 0
         self.nb_action = 4
         self.cv_cuda = check_cuda()
         self.difficulty = difficulty
@@ -124,11 +126,10 @@ class Environment:
         self.evaluation_mode = False
         self.action_space = np.arange(4)
 
-
     def place_charlie(self):
         """
         this method place change the charlie's position on the map.
-        """     
+        """
         while True:
             x = random.randint(0, self.W - 1)
             y = random.randint(0, self.H - 1)
@@ -136,9 +137,9 @@ class Environment:
                 self.charlie_x = x
                 self.charlie_y = y
                 self.full_img[self.charlie_y:self.charlie_y + self.charlie.shape[0],
-                self.charlie_x:self.charlie_x + self.charlie.shape[1]] = self.charlie
+                              self.charlie_x:self.charlie_x + self.charlie.shape[1]] = self.charlie
                 break
-        
+
         pad = 2 ** self.min_zoom
         nb_line = self.W / pad
         nb_col = int(self.charlie_y / pad)
@@ -153,26 +154,21 @@ class Environment:
         """
         del self.history
         del self.sub_images_queue
+        del self.root
         self.sub_images_queue = []
-        self.reward_tree = []
         self.history = []
         self.nb_actions_taken = 0
-        self.nb_choice = 0
         self.nb_bad_choice = 0
         self.nb_good_choice = 0
-        self.z = self.max_zoom
-        self.x = 0
-        self.y = 0
-        self.nb_mark = 0
 
         if self.difficulty > 0:
             self.full_img = self.base_img.copy()
-       	    self.place_charlie()
-        
-        if self.difficulty > 1:
-       	    self.init_env()
+            self.place_charlie()
 
-        self.root = Tree(self.full_img, (self.x, self.y, self.z))
+        if self.difficulty > 1:
+            self.init_env()
+
+        self.root = Tree(self.full_img, (0, 0, self.max_zoom))
         self.current_node = self.root
         self.current_node.get_childs(self.min_zoom)
         self.current_node.visit(-1)
@@ -203,8 +199,10 @@ class Environment:
 
         pad = max_ - np.max([self.W, self.H])
 
-        self.base_img  = cv2.copyMakeBorder(self.base_img, 0, max_ - self.H, 0, max_ - self.W, cv2.BORDER_CONSTANT, None, value = 0)
-        self.base_mask = cv2.copyMakeBorder(self.base_mask, 0, max_ - self.H, 0, max_ - self.W, cv2.BORDER_CONSTANT, None, value = [255, 255, 255])
+        self.base_img = cv2.copyMakeBorder(self.base_img, 0, max_ - self.H, 0, max_ - self.W, cv2.BORDER_CONSTANT, None,
+                                           value=0)
+        self.base_mask = cv2.copyMakeBorder(self.base_mask, 0, max_ - self.H, 0, max_ - self.W, cv2.BORDER_CONSTANT,
+                                            None, value=[255, 255, 255])
         self.W = max_
         self.H = max_
         self.ratio = HIST_RES / self.H
@@ -218,8 +216,7 @@ class Environment:
         self.compute_mask_map()
         self.hist_img = cv2.resize(self.full_img, (HIST_RES, HIST_RES))
         self.heat_map = np.zeros((ZOOM_DEPTH + 1, HIST_RES, HIST_RES))
-        self.V_map = np.zeros((HIST_RES, HIST_RES))
-
+        self.V_map = np.full((HIST_RES, HIST_RES), -1.)
 
     def compute_mask_map(self):
         """
@@ -242,14 +239,13 @@ class Environment:
     def record(self, x, y, z, V):
         window = self.zoom_padding << (z - 1)
         self.heat_map[z - self.min_zoom + 1][int(window * y * self.ratio):
-                      int((window + window * y) * self.ratio),
+                                             int((window + window * y) * self.ratio),
         int(window * x * self.ratio):
         int((window + window * x) * self.ratio)] += 1
 
         if z <= self.min_zoom:
             self.V_map[int(window * y * self.ratio): int((window + window * y) * self.ratio),
-                   int(window * x * self.ratio): int((window + window * x) * self.ratio)] += V
-
+            int(window * x * self.ratio): int((window + window * x) * self.ratio)] = V
 
     def follow_policy(self, probs):
         A = np.random.choice(self.action_space, p=probs)
@@ -264,7 +260,7 @@ class Environment:
         A = np.argmax(probs)
         p = probs[A]
         probs[A] = 0.
-        giveaway = p / (np.count_nonzero(probs) + 0.00000001)  
+        giveaway = p / (np.count_nonzero(probs) + 0.00000001)
         probs[probs != 0.] += giveaway
         self.current_node.proba = probs
         return A
@@ -274,16 +270,16 @@ class Environment:
         This method allow the user to know if the current subgrid contain charlie or not
         :return: true if the sub grid contains charlie.
         """
-        
+
         window = self.zoom_padding << (z - 1)
         charlie_w = self.charlie.shape[1] / 2
         charlie_h = self.charlie.shape[0] / 2
 
         return ((x * window <= self.charlie_x < x * window + window - charlie_w or
-                x * window <= self.charlie_x + charlie_w < x * window + window)
+                 x * window <= self.charlie_x + charlie_w < x * window + window)
                 and
                 (y * window <= self.charlie_y < y * window + window - charlie_h or
-                y * window <= self.charlie_y + charlie_h < y * window + window))
+                 y * window <= self.charlie_y + charlie_h < y * window + window))
 
     def sub_image_contain_roi(self, x, y, z):
         window = self.zoom_padding << (z - 1)
@@ -292,9 +288,9 @@ class Environment:
 
             if ((x * window <= self.ROI[1][i] < x * window + window or
                  x * window <= self.ROI[1][i] + roi_pad < x * window + window)
-                and
-                (y * window <= self.ROI[0][i] < y * window + window or
-                 y * window <= self.ROI[0][i] + roi_pad < y * window + window)):
+                    and
+                    (y * window <= self.ROI[0][i] < y * window + window or
+                     y * window <= self.ROI[0][i] + roi_pad < y * window + window)):
                 return True
 
         return False
@@ -320,20 +316,20 @@ class Environment:
             self.nb_good_choice += 1
         else:
             self.nb_bad_choice += 1
-   
+
         if z <= self.min_zoom and self.sub_img_contain_charlie(x, y, z):
             reward = 10
-            is_terminal = True 
+            is_terminal = True
 
         self.history.append((x, y, z))
 
         if self.evaluation_mode:
             self.record(x, y, z, V)
 
-        #if the current node is a leaf we need to go up the tree
+        # if the current node is a leaf we need to go up the tree
         while self.current_node.is_leaf():
             if self.current_node.parent is not None:
-                self.current_node = self.current_node.parent 
+                self.current_node = self.current_node.parent
                 proba = self.current_node.proba
             else:
                 is_terminal = True
@@ -344,7 +340,6 @@ class Environment:
         self.nb_actions_taken += 1
 
         return S_prime, reward, is_terminal, self.current_node.get_parent_number(), self.current_node.number, proba
-
 
     def get_gif_trajectory(self, name):
         """
