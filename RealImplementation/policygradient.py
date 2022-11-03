@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from torch import nn
 from torch.autograd import Variable
+from torch.autograd.grad_mode import F
 from torch.optim.lr_scheduler import StepLR
 from torch.distributions import Categorical
 from torchvision import models
@@ -25,20 +26,21 @@ class PolicyNet(nn.Module):
         self.sub_img_res = int(self.img_res / 2)
 
         self.backbone = torch.nn.Sequential(
-            torch.nn.Conv2d(in_channels=3, out_channels=n_kernels >> 2, kernel_size=3),
-            torch.nn.Dropout(0.2),
+            torch.nn.Conv2d(in_channels=3, out_channels=n_kernels >> 3, kernel_size=9),
+            torch.nn.Dropout(0.1),
+            torch.nn.ReLU(),
+            torch.nn.Conv2d(in_channels=n_kernels >> 3, out_channels=n_kernels >> 2, kernel_size=7),
             torch.nn.ReLU(),
             torch.nn.MaxPool2d(2),
-            torch.nn.Conv2d(in_channels=n_kernels >> 2, out_channels=n_kernels >> 1, kernel_size=3),
-            torch.nn.Dropout(0.2),
+            torch.nn.Conv2d(in_channels=n_kernels >> 2, out_channels=n_kernels >> 1, kernel_size=5),
+            torch.nn.Dropout(0.1),
             torch.nn.ReLU(),
-            torch.nn.MaxPool2d(2),
-            torch.nn.Conv2d(in_channels=n_kernels >> 1, out_channels=n_kernels, kernel_size=3, padding=1),
+            torch.nn.Conv2d(in_channels=n_kernels >> 1, out_channels=n_kernels, kernel_size=3),
             torch.nn.Flatten(),
         )
         
         self.middle = torch.nn.Sequential(
-                torch.nn.Linear(n_kernels * 4 * 4, n_hidden_nodes),
+                torch.nn.Linear(n_kernels * 36, n_hidden_nodes),
                 torch.nn.ReLU(),
                 torch.nn.Linear(n_hidden_nodes, n_hidden_nodes >> 2),
                 torch.nn.ReLU()
@@ -58,6 +60,15 @@ class PolicyNet(nn.Module):
         self.head.to(self.device)
         self.value_head.to(self.device)
 
+        self.middle.apply(self.init_weights)
+        self.head.apply(self.init_weights)
+        self.value_head.apply(self.init_weights)
+
+    def init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            torch.nn.init.xavier_uniform_(m.weight)
+            m.bias.data.fill_(0.01)
+
     def prepare_data(self, state):
         img = state.permute(0, 3, 1, 2)
         patches = img.unfold(1, 3, 3).unfold(2, self.sub_img_res, self.sub_img_res).unfold(3, self.sub_img_res, self.sub_img_res)
@@ -76,12 +87,12 @@ class PolicyNet(nn.Module):
         return np.random.choice(self.action_space, p=probs.detach().cpu().numpy()[0])
 
 
-class Reinforce:
+class PolicyGradient:
 
     def __init__(self, environment, learning_rate=0.001,
                  episodes=100, val_episode=100, gamma=0.5,
-                 entropy_coef=0.01, beta_coef=0.3,
-                 lr_gamma=0.5, batch_size=256):
+                 entropy_coef=0.001, beta_coef=0.03, clip=0.5,
+                 lr_gamma=0.5, batch_size=256, loss_function="ppo"):
 
         self.gamma = gamma
         self.environment = environment
@@ -94,70 +105,111 @@ class Reinforce:
         self.policy = PolicyNet(img_res=environment.img_res)
         self.action_space = environment.nb_action
         self.batch_size = batch_size
+        self.clip = clip
         print(self.policy)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=learning_rate)
         self.scheduler = StepLR(self.optimizer, step_size=100, gamma=lr_gamma)
 
+        if loss_function == "ppo":
+            self.loss_function = self.ppo
+        elif loss_function == "a2c":
+            self.loss_function = self.a2c
+
     def minmax_scaling(self, x):
         return (x - self.min_r) / (self.max_r - self.min_r)
+
+    def a2c(self, advantages, rewards, action_probs, log_probs, selected_log_probs, values):
+        entropy_loss = self.entropy_coef * (action_probs * log_probs).sum(1).mean()
+        value_loss = self.beta_coef * torch.nn.MSELoss()(values, rewards.unsqueeze(1))
+        policy_loss = - selected_log_probs.mean()
+        loss = policy_loss + entropy_loss
+        # upgrade
+        loss.backward(retain_graph=True)
+        value_loss.backward()
+        torch.nn.utils.clip_grad_value_(self.policy.parameters(), 100.)
+        self.optimizer.step()
+        return loss.item() + value_loss.item()
+
+    def ppo(self, advantages, rewards, action_probs, log_probs, selected_log_probs, values):
+        '''
+        inspired by: https://github.com/sungyubkim/Deep_RL_with_pytorch/blob/master/3_Policy_Based_Methods/3_2_PPO_pong_ver_A.ipynb
+        :param advantages:
+        :param rewards:
+        :param action_probs:
+        :param log_probs:
+        :param selected_log_probs:
+        :param values:
+        :return:
+        '''
+        entropy_loss = self.entropy_coef * (action_probs * log_probs).sum(1).mean()
+        ratio = torch.exp(selected_log_probs.squeeze(1) - selected_log_probs)
+
+        # actor loss
+        surr1 = ratio * advantages
+        surr2 = torch.clamp(ratio, 1.0 - self.clip, 1.0 + self.clip) * advantages
+        actor_loss = -torch.min(surr1, surr2).mean()
+        # critic loss
+        critic_loss = torch.nn.functional.smooth_l1_loss(values.squeeze(1), rewards)
+
+        loss = actor_loss + critic_loss + entropy_loss
+        loss.backward()
+        self.optimizer.step()
+        return loss.item()
 
     def update_policy(self, batch):
 
         sum_loss = 0.
         counter = 0.
-        S, A, G = batch
+        S, A, G, TD = batch
         S = S.split(self.batch_size)
         A = A.split(self.batch_size)
         G = G.split(self.batch_size)
+        TD = TD.split(self.batch_size)
 
         # create batch of size edible by the gpu
         for i in range(len(A)):
             S_ = S[i]
             A_ = A[i]
             G_ = G[i]
+            TD_ = TD[i]
 
             # Calculate loss
             self.optimizer.zero_grad()
             action_probs, V = self.policy(S_)
-            
-            # TD error is scaled to ensure no exploding gradient
-            # also it stabalise the learning : https://arxiv.org/pdf/2105.05347.pdf
-            TD_error = torch.sub(G_.unsqueeze(1), V.detach())
-            self.min_r = min(torch.min(TD_error), self.min_r)
-            self.max_r = max(torch.max(TD_error), self.max_r)
-            TD_error = self.minmax_scaling(TD_error)
-            
             log_probs = torch.log(action_probs)
             log_probs[torch.isinf(log_probs)] = 0
 
-            selected_log_probs = TD_error * torch.gather(log_probs, 1, A_.unsqueeze(1))
+            selected_log_probs = TD_ * torch.gather(log_probs, 1, A_.unsqueeze(1))
 
-            entropy_loss =  self.entropy_coef * (action_probs * log_probs).sum(1).mean()
+            sum_loss += self.loss_function(TD_, G_, action_probs, log_probs, selected_log_probs, V)
 
-            value_loss = self.beta_coef * torch.nn.MSELoss()(V, G_.unsqueeze(1))
-            policy_loss = - selected_log_probs.mean()
-            total_policy_loss = policy_loss + entropy_loss
-
-            total_policy_loss.backward(retain_graph=True)
-            value_loss.backward()
-            torch.nn.utils.clip_grad_value_(self.policy.parameters(), 100.)
-            self.optimizer.step()
-
-            sum_loss += total_policy_loss.item()
             counter += 1
         self.scheduler.step()
 
         return sum_loss / counter
 
-    def cumulated_reward_tree(self, rewards):
+    def calculate_advantage_tree(self, rewards):
         rewards = np.array(rewards)
-        G = rewards[:, 3].astype(float)
 
-        for reward in rewards[::-1]:
-            parent, current, child, R = reward
+        # calculate the discount rewards
+        G = rewards[:, 3].astype(float)
+        V = rewards[:, 4].astype(float)
+        node_info = rewards[:, 0:3].astype(int)
+        for ni in node_info[::-1]:
+
+            parent, current, child = ni
             if parent != -1:
-                G[np.all(rewards[:, [1, 2]] == [parent, current], axis=1)] += self.gamma * R
-        return G.tolist()
+                G[np.all(rewards[:, [1, 2]] == [parent, current], axis=1)] += self.gamma * G[current]
+
+        # calculate the TD error as A = Q(S,A) - V(S) => A + V(S') - V(S)
+        TDE = G.copy()
+        for ni in node_info[::-1]:
+            parent, current, child = ni
+            if parent != -1:
+                TDE[np.all(rewards[:, [1, 2]] == [parent, current], axis=1)] += self.gamma * V[current]
+            TDE[current] -= V[current]
+
+        return G.tolist(), TDE.tolist()
 
     def fit(self):
 
@@ -187,6 +239,7 @@ class Reinforce:
                 sum_v = 0
                 sum_reward = 0
                 existing_proba = None
+                existing_v = None
                 while True:
 
                     counter += 1
@@ -197,22 +250,24 @@ class Reinforce:
                     if existing_proba is None:
                         with torch.no_grad():
                             action_probs, V = self.policy(S)
-                            action_probs = action_probs.detach().cpu().numpy()[0]                           
+                            action_probs = action_probs.detach().cpu().numpy()[0]
+                            V = V.item()
                     else:
                         action_probs = existing_proba
+                        V = existing_v
                     
                     action_probs /= action_probs.sum() # resovle an know issue with numpy
-                    A = self.environment.follow_policy(action_probs)
+                    A = self.environment.follow_policy(action_probs, V)
 
-                    sum_v += V.item()
+                    sum_v += V
  
-                    S_prime, R, is_terminal, node_info, proba = self.environment.take_action(A)
-                    existing_proba = proba
+                    S_prime, R, is_terminal, node_info, existing_pred = self.environment.take_action(A)
+                    existing_proba, existing_v = existing_pred
                     parent, current, child = node_info
 
                     S_batch.append(S)
                     A_batch.append(A)
-                    R_batch.append((parent, current, child, R))
+                    R_batch.append((parent, current, child, R, V))
                     sum_reward += R
 
                     S = S_prime
@@ -221,9 +276,9 @@ class Reinforce:
                         break
 
                 # ------------------------------------------------------------------------------------------------------
-                # CUMULATED REWARD CALCULATION
+                # CUMULATED REWARD CALCULATION AND TD ERROR
                 # ------------------------------------------------------------------------------------------------------
-                G_batch = self.cumulated_reward_tree(R_batch)
+                G_batch, TDE_Batch = self.calculate_advantage_tree(R_batch)
 
                 # ------------------------------------------------------------------------------------------------------
                 # BATCH PREPARATION
@@ -231,11 +286,17 @@ class Reinforce:
                 S_batch = torch.concat(S_batch).to(self.policy.device)
                 A_batch = torch.LongTensor(A_batch).to(self.policy.device)
                 G_batch = torch.FloatTensor(G_batch).to(self.policy.device)
+                TDE_Batch = torch.FloatTensor(TDE_Batch).to(self.policy.device)
+                # TD error is scaled to ensure no exploding gradient
+                # also it stabilise the learning : https://arxiv.org/pdf/2105.05347.pdf
+                self.min_r = min(torch.min(TDE_Batch), self.min_r)
+                self.max_r = max(torch.max(TDE_Batch), self.max_r)
+                TDE_Batch = self.minmax_scaling(TDE_Batch)
 
                 # ------------------------------------------------------------------------------------------------------
                 # MODEL OPTIMISATION
                 # ------------------------------------------------------------------------------------------------------
-                mean_loss = self.update_policy((S_batch, A_batch, G_batch))
+                mean_loss = self.update_policy((S_batch, A_batch, G_batch, TDE_Batch))
 
                 # ------------------------------------------------------------------------------------------------------
                 # METRICS RECORD
@@ -268,6 +329,7 @@ class Reinforce:
                 sum_episode_reward = 0
                 S = self.environment.reload_env()
                 existing_proba = None
+                existing_v = None
                 start_time = time.time()
                 while True:
                     # State preprocess
@@ -279,15 +341,17 @@ class Reinforce:
                         with torch.no_grad():
                             probs, V = self.policy(S)
                             probs = probs.detach().cpu().numpy()[0]
+                            V = V.item()
                     else:
                         probs = existing_proba
+                        V = existing_v
 
                     # no need to explore, so we select the most probable action
                     probs /= probs.sum()
                     A = self.environment.exploit(probs)
-                    S_prime, R, is_terminal, _, proba = self.environment.take_action(A, V.item())
+                    S_prime, R, is_terminal, _, existing_pred = self.environment.take_action(A, V)
 
-                    existing_proba = proba
+                    existing_proba, existing_v = existing_pred
 
                     S = S_prime
                     sum_episode_reward += R

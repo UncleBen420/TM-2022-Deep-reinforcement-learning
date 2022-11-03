@@ -10,7 +10,7 @@ import imageio
 import numpy as np
 from matplotlib import pyplot as plt
 
-MODEL_RES = 32
+MODEL_RES = 64
 HIST_RES = 100
 ZOOM_DEPTH = 4
 
@@ -28,6 +28,7 @@ class Tree:
         self.y = y
         self.z = z
         self.proba = None
+        self.V = None
 
     def add_child(self, child):
         child.parent = self
@@ -250,13 +251,14 @@ class Environment:
             self.V_map[int(window * y * self.ratio): int((window + window * y) * self.ratio),
             int(window * x * self.ratio): int((window + window * x) * self.ratio)] = V
 
-    def follow_policy(self, probs):
+    def follow_policy(self, probs, V):
         A = np.random.choice(self.action_space, p=probs)
         p = probs[A]
         probs[A] = 0.
         giveaway = p / (np.count_nonzero(probs) + 0.00000001)
         probs[probs != 0.] += giveaway
         self.current_node.proba = probs
+        self.current_node.V = V
         return A
 
     def exploit(self, probs):
@@ -329,7 +331,7 @@ class Environment:
             self.nb_bad_choice += 1
 
         if z <= self.min_zoom and self.sub_img_contain_charlie(x, y, z):
-            reward = 1.
+            reward = 10.
             is_terminal = True
 
         self.history.append((x, y, z))
@@ -341,14 +343,13 @@ class Environment:
         while self.current_node.is_leaf():
             if self.current_node.parent is not None:
                 self.current_node = self.current_node.parent
-                proba = self.current_node.proba
             else:
                 is_terminal = True
                 break
 
         S_prime = self.current_node.get_state()
 
-        return S_prime, reward, is_terminal, node_info, proba
+        return S_prime, reward, is_terminal, node_info, (self.current_node.proba, self.current_node.V)
 
     def get_gif_trajectory(self, name):
         """

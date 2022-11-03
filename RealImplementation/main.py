@@ -5,7 +5,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 import environment
 from dummy_agent import DummyAgent
-from reinforce import Reinforce
+from policygradient import PolicyGradient
 import cv2
 import seaborn as sns
 
@@ -105,10 +105,10 @@ if __name__ == '__main__':
     # Initialise the environment
     # ------------------------------------------------------------------------------------------------------------------
 
-    ENVIRONMENT = environment.Environment("../../Dataset_waldo", difficulty=0)
+    ENVIRONMENT = environment.Environment("../../Dataset_waldo", difficulty=1)
     ENVIRONMENT.init_env()
     EVALUATOR = Evaluator()
-    REIN = Reinforce(ENVIRONMENT, episodes=1000, val_episode=100)
+    PG = PolicyGradient(ENVIRONMENT, episodes=1000, val_episode=100, loss_function="a2c")
     DUMMY = DummyAgent(ENVIRONMENT, val_episode=100)
 
     # ------------------------------------------------------------------------------------------------------------------
@@ -116,7 +116,7 @@ if __name__ == '__main__':
     # ------------------------------------------------------------------------------------------------------------------
 
     EVALUATOR.init_plot()
-    EVALUATOR.fit(REIN, "Reinforce")
+    EVALUATOR.fit(PG, "Reinforce")
     EVALUATOR.show()
 
     # ------------------------------------------------------------------------------------------------------------------
@@ -126,7 +126,7 @@ if __name__ == '__main__':
     EVALUATOR.init_plot()
     EVALUATOR.evaluate(DUMMY, "Dummy agent")
     ENVIRONMENT.evaluation_mode = True
-    EVALUATOR.evaluate(REIN, "Reinforce")
+    EVALUATOR.evaluate(PG, "Reinforce")
     EVALUATOR.show_eval()
 
     # ------------------------------------------------------------------------------------------------------------------
