@@ -8,6 +8,11 @@ import re
 import cv2
 import imageio
 import numpy as np
+from matplotlib import pyplot as plt
+
+MODEL_RES = 32
+HIST_RES = 100
+ZOOM_DEPTH = 4
 
 
 class Tree:
@@ -32,19 +37,21 @@ class Tree:
         return -1 if self.parent is None else self.parent.number
 
     def get_state(self):
-        imgs = []
-        for child in self.childs:
-            imgs.append(child.resized_img)
+        #imgs = []
+        #for child in self.childs:
+        #    imgs.append(child.resized_img)
 
-        ab = np.concatenate((imgs[0], imgs[1]), axis=0)
-        cd = np.concatenate((imgs[2], imgs[3]), axis=0)
-        state = np.concatenate((ab, cd), axis=1)
-        return np.array(state.squeeze())
+        #ab = np.concatenate((imgs[0], imgs[1]), axis=0)
+        #cd = np.concatenate((imgs[2], imgs[3]), axis=0)
+        #state = np.concatenate((ab, cd), axis=1)
+        #return np.array(state.squeeze())
+
+        return np.array(self.resized_img.squeeze())
 
     def visit(self, nb_action):
         if self.visited:
             return
-        self.resized_img = np.zeros((MODEL_RES, MODEL_RES, 3))
+
         self.number = nb_action
         del (self.img)
         self.img = None
@@ -90,11 +97,6 @@ def check_cuda():
     return len(cv_info) > 0
 
 
-MODEL_RES = 20
-HIST_RES = 100
-ZOOM_DEPTH = 4
-
-
 class Environment:
     """
     this class implement a problem where the agent must mark the place where he have found boat.
@@ -125,6 +127,7 @@ class Environment:
         self.dataset_path = dataset_path
         self.evaluation_mode = False
         self.action_space = np.arange(4)
+        self.img_res = MODEL_RES
 
     def place_charlie(self):
         """
@@ -171,7 +174,7 @@ class Environment:
         self.root = Tree(self.full_img, (0, 0, self.max_zoom))
         self.current_node = self.root
         self.current_node.get_childs(self.min_zoom)
-        self.current_node.visit(-1)
+        self.current_node.visit(0)
         S = self.current_node.get_state()
 
         return S
@@ -298,14 +301,22 @@ class Environment:
     def take_action(self, action, V=0.):
 
         reward = -1
+        self.nb_actions_taken += 1
         is_terminal = False
         proba = None
+
+        parent_n = self.current_node.get_parent_number()
+        current_n = self.current_node.number
+
 
         if not self.current_node.childs[action].visited:
             self.current_node = self.current_node.childs[action]
 
         self.current_node.get_childs(self.min_zoom)
         self.current_node.visit(self.nb_actions_taken)
+
+        next_n = self.current_node.number
+        node_info = (parent_n, current_n, next_n)
 
         x = self.current_node.x
         y = self.current_node.y
@@ -318,7 +329,7 @@ class Environment:
             self.nb_bad_choice += 1
 
         if z <= self.min_zoom and self.sub_img_contain_charlie(x, y, z):
-            reward = 10
+            reward = 1.
             is_terminal = True
 
         self.history.append((x, y, z))
@@ -337,9 +348,7 @@ class Environment:
 
         S_prime = self.current_node.get_state()
 
-        self.nb_actions_taken += 1
-
-        return S_prime, reward, is_terminal, self.current_node.get_parent_number(), self.current_node.number, proba
+        return S_prime, reward, is_terminal, node_info, proba
 
     def get_gif_trajectory(self, name):
         """

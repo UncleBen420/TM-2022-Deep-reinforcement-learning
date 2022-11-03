@@ -12,7 +12,7 @@ from torchvision import transforms
 from tqdm import tqdm
 
 class PolicyNet(nn.Module):
-    def __init__(self, img_res=40, n_hidden_nodes=1024, n_kernels=64):
+    def __init__(self, img_res=64, n_hidden_nodes=512, n_kernels=64):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -26,34 +26,31 @@ class PolicyNet(nn.Module):
 
         self.backbone = torch.nn.Sequential(
             torch.nn.Conv2d(in_channels=3, out_channels=n_kernels >> 2, kernel_size=3),
-            #torch.nn.Dropout(0.1),
+            torch.nn.Dropout(0.2),
             torch.nn.ReLU(),
             torch.nn.MaxPool2d(2),
             torch.nn.Conv2d(in_channels=n_kernels >> 2, out_channels=n_kernels >> 1, kernel_size=3),
-            #torch.nn.Dropout(0.1),
+            torch.nn.Dropout(0.2),
             torch.nn.ReLU(),
             torch.nn.MaxPool2d(2),
-            torch.nn.Conv2d(in_channels=n_kernels >> 1, out_channels=n_kernels, kernel_size=3),
+            torch.nn.Conv2d(in_channels=n_kernels >> 1, out_channels=n_kernels, kernel_size=3, padding=1),
             torch.nn.Flatten(),
         )
         
         self.middle = torch.nn.Sequential(
-                torch.nn.Linear(n_kernels * 4, n_hidden_nodes),
+                torch.nn.Linear(n_kernels * 4 * 4, n_hidden_nodes),
                 torch.nn.ReLU(),
                 torch.nn.Linear(n_hidden_nodes, n_hidden_nodes >> 2),
-                torch.nn.ReLU(),
-                torch.nn.Linear(n_hidden_nodes >> 2, n_hidden_nodes >> 3),
                 torch.nn.ReLU()
             )
 
         self.head = torch.nn.Sequential(
-                torch.nn.Linear(n_hidden_nodes >> 3, 4),
+                torch.nn.Linear(n_hidden_nodes >> 2, 4),
                 torch.nn.Softmax(dim=-1)
             )
 
-            
         self.value_head = torch.nn.Sequential(
-                torch.nn.Linear(n_hidden_nodes >> 3, 1)
+                torch.nn.Linear(n_hidden_nodes >> 2, 1)
             )
             
         self.backbone.to(self.device)
@@ -82,8 +79,8 @@ class PolicyNet(nn.Module):
 class Reinforce:
 
     def __init__(self, environment, learning_rate=0.001,
-                 episodes=100, val_episode=100, gamma=0.4,
-                 entropy_coef=0.01, beta_coef=0.01,
+                 episodes=100, val_episode=100, gamma=0.5,
+                 entropy_coef=0.01, beta_coef=0.3,
                  lr_gamma=0.5, batch_size=256):
 
         self.gamma = gamma
@@ -94,7 +91,7 @@ class Reinforce:
         self.entropy_coef = entropy_coef
         self.min_r = 0
         self.max_r = 1
-        self.policy = PolicyNet()
+        self.policy = PolicyNet(img_res=environment.img_res)
         self.action_space = environment.nb_action
         self.batch_size = batch_size
         print(self.policy)
@@ -154,12 +151,12 @@ class Reinforce:
 
     def cumulated_reward_tree(self, rewards):
         rewards = np.array(rewards)
-        G = rewards[:, 2].astype(float)
+        G = rewards[:, 3].astype(float)
 
         for reward in rewards[::-1]:
-            parent, current, R = reward
+            parent, current, child, R = reward
             if parent != -1:
-                G[rewards[:, 1] == parent] += (self.gamma * R) / len(G[rewards[:, 1] == parent])
+                G[np.all(rewards[:, [1, 2]] == [parent, current], axis=1)] += self.gamma * R
         return G.tolist()
 
     def fit(self):
@@ -209,12 +206,13 @@ class Reinforce:
 
                     sum_v += V.item()
  
-                    S_prime, R, is_terminal, parent, current, proba = self.environment.take_action(A)
+                    S_prime, R, is_terminal, node_info, proba = self.environment.take_action(A)
                     existing_proba = proba
+                    parent, current, child = node_info
 
                     S_batch.append(S)
                     A_batch.append(A)
-                    R_batch.append((parent, current, R))
+                    R_batch.append((parent, current, child, R))
                     sum_reward += R
 
                     S = S_prime
@@ -287,7 +285,7 @@ class Reinforce:
                     # no need to explore, so we select the most probable action
                     probs /= probs.sum()
                     A = self.environment.exploit(probs)
-                    S_prime, R, is_terminal, _, _, proba = self.environment.take_action(A, V.item())
+                    S_prime, R, is_terminal, _, proba = self.environment.take_action(A, V.item())
 
                     existing_proba = proba
 

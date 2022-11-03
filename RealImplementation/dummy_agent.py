@@ -37,7 +37,7 @@ class DummyAgent:
                     probs /= probs.sum()
                     # no need to explore, so we select the most probable action
                     A = self.environment.exploit(probs)
-                    S_prime, R, is_terminal, _, _, _ = self.environment.take_action(A)
+                    S_prime, R, is_terminal, _, _ = self.environment.take_action(A)
 
                     sum_episode_reward += R
                     if is_terminal:

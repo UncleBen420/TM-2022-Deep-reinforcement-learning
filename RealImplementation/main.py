@@ -105,7 +105,7 @@ if __name__ == '__main__':
     # Initialise the environment
     # ------------------------------------------------------------------------------------------------------------------
 
-    ENVIRONMENT = environment.Environment("../../Dataset_waldo_full", difficulty=2)
+    ENVIRONMENT = environment.Environment("../../Dataset_waldo", difficulty=0)
     ENVIRONMENT.init_env()
     EVALUATOR = Evaluator()
     REIN = Reinforce(ENVIRONMENT, episodes=1000, val_episode=100)
