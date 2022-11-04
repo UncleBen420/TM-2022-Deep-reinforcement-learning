@@ -105,11 +105,11 @@ if __name__ == '__main__':
     # Initialise the environment
     # ------------------------------------------------------------------------------------------------------------------
 
-    ENVIRONMENT = environment.Environment("../../Dataset_waldo", difficulty=1)
+    ENVIRONMENT = environment.Environment("../../Dataset_waldo", difficulty=0)
     ENVIRONMENT.init_env()
     EVALUATOR = Evaluator()
-    PG = PolicyGradient(ENVIRONMENT, episodes=1000, val_episode=100, loss_function="a2c")
-    DUMMY = DummyAgent(ENVIRONMENT, val_episode=100)
+    PG = PolicyGradient(ENVIRONMENT, episodes=10, val_episode=100, loss_function="a2c")
+    DUMMY = DummyAgent(ENVIRONMENT, val_episode=10)
 
     # ------------------------------------------------------------------------------------------------------------------
     # Train the agent
@@ -133,14 +133,14 @@ if __name__ == '__main__':
     # Plot Agent interest map
     # ------------------------------------------------------------------------------------------------------------------
 
-    x, y = np.meshgrid(np.linspace(0, 1, ENVIRONMENT.hist_img.shape[0]),
-                       np.linspace(0, 1, ENVIRONMENT.hist_img.shape[1]))
-    cb = plt.contourf(x, y, ENVIRONMENT.V_map, 15, cmap="gist_heat")
+    #x, y = np.meshgrid(np.linspace(0, 1, ENVIRONMENT.hist_img.shape[0]),
+    #                   np.linspace(0, 1, ENVIRONMENT.hist_img.shape[1]))
+    #cb = plt.contourf(x, y, ENVIRONMENT.V_map, 15, cmap="gist_heat")
 
-    plt.colorbar(cb)
-    plt.imshow(ENVIRONMENT.hist_img)
-    plt.imshow(ENVIRONMENT.V_map, cmap="gist_heat", alpha=0.4)
-    plt.show()
+    #plt.colorbar(cb)
+    #plt.imshow(ENVIRONMENT.hist_img)
+    #plt.imshow(ENVIRONMENT.V_map, cmap="gist_heat", alpha=0.4)
+    #plt.show()
 
     # ------------------------------------------------------------------------------------------------------------------
     # Plot Agent sub image visited
@@ -158,7 +158,7 @@ if __name__ == '__main__':
 
     fig = plt.figure()
     ax = plt.axes(projection="3d")
-    policy = ENVIRONMENT.heat_map
+    policy = ENVIRONMENT.V_map
 
     x, y = np.meshgrid(np.linspace(0, 1, policy.shape[1]), np.linspace(0, 1, policy.shape[2]))
 

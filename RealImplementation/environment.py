@@ -8,6 +8,7 @@ import re
 import cv2
 import imageio
 import numpy as np
+import gc
 from matplotlib import pyplot as plt
 
 MODEL_RES = 64
@@ -46,13 +47,13 @@ class Tree:
         #cd = np.concatenate((imgs[2], imgs[3]), axis=0)
         #state = np.concatenate((ab, cd), axis=1)
         #return np.array(state.squeeze())
-
         return np.array(self.resized_img.squeeze())
 
     def visit(self, nb_action):
         if self.visited:
             return
 
+        #self.resized_img = np.zeros((MODEL_RES, MODEL_RES, 3))
         self.number = nb_action
         del (self.img)
         self.img = None
@@ -159,6 +160,7 @@ class Environment:
         del self.history
         del self.sub_images_queue
         del self.root
+        gc.collect()
         self.sub_images_queue = []
         self.history = []
         self.nb_actions_taken = 0
@@ -166,6 +168,7 @@ class Environment:
         self.nb_good_choice = 0
 
         if self.difficulty > 0:
+            del self.full_img
             self.full_img = self.base_img.copy()
             self.place_charlie()
 
@@ -185,7 +188,7 @@ class Environment:
         This method is used to load the image representing the environment to the gpu
         It place charlie on the image has well
         """
-
+        del self.full_img
         index = random.randint(0, len(self.image_list) - 1)
         img = os.path.join(self.dataset_path, "images", self.image_list[index])
         mask = os.path.join(self.dataset_path, "masks", self.mask_list[index])
@@ -220,7 +223,7 @@ class Environment:
         self.compute_mask_map()
         self.hist_img = cv2.resize(self.full_img, (HIST_RES, HIST_RES))
         self.heat_map = np.zeros((ZOOM_DEPTH + 1, HIST_RES, HIST_RES))
-        self.V_map = np.full((HIST_RES, HIST_RES), -1.)
+        self.V_map = np.full((ZOOM_DEPTH + 1, HIST_RES, HIST_RES), -1.)
 
     def compute_mask_map(self):
         """
@@ -247,9 +250,8 @@ class Environment:
         int(window * x * self.ratio):
         int((window + window * x) * self.ratio)] += 1
 
-        if z <= self.min_zoom:
-            self.V_map[int(window * y * self.ratio): int((window + window * y) * self.ratio),
-            int(window * x * self.ratio): int((window + window * x) * self.ratio)] = V
+        self.V_map[z - self.min_zoom + 1][int(window * y * self.ratio): int((window + window * y) * self.ratio),
+        int(window * x * self.ratio): int((window + window * x) * self.ratio)] = V
 
     def follow_policy(self, probs, V):
         A = np.random.choice(self.action_space, p=probs)
@@ -261,13 +263,14 @@ class Environment:
         self.current_node.V = V
         return A
 
-    def exploit(self, probs):
+    def exploit(self, probs, V):
         A = np.argmax(probs)
         p = probs[A]
         probs[A] = 0.
         giveaway = p / (np.count_nonzero(probs) + 0.00000001)
         probs[probs != 0.] += giveaway
         self.current_node.proba = probs
+        self.current_node.V = V
         return A
 
     def sub_img_contain_charlie(self, x, y, z):
@@ -302,7 +305,7 @@ class Environment:
 
     def take_action(self, action, V=0.):
 
-        reward = -1
+        reward = -1.
         self.nb_actions_taken += 1
         is_terminal = False
         proba = None
@@ -337,7 +340,7 @@ class Environment:
         self.history.append((x, y, z))
 
         if self.evaluation_mode:
-            self.record(x, y, z, V)
+            self.record(x, y, z, self.current_node.parent.V)
 
         # if the current node is a leaf we need to go up the tree
         while self.current_node.is_leaf():
