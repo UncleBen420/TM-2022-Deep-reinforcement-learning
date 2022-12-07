@@ -13,15 +13,45 @@ from matplotlib import pyplot as plt
 
 MODEL_RES = 64
 HIST_RES = 100
-ZOOM_DEPTH = 4
+ZOOM_DEPTH = 3
+
+
+class PriorityQueue(object):
+    def __init__(self):
+        self.queue = []
+
+    def __str__(self):
+        return ' '.join([str(i) for i in self.queue])
+
+    # for checking if the queue is empty
+    def isEmpty(self):
+        return len(self.queue) == 0
+
+    # for inserting an element in the queue
+    def append(self, node, rank):
+        self.queue.append([rank, node])
+
+    # for popping an element based on Priority
+    def pop(self):
+        try:
+            max_val_i = 0
+
+            for i in range(len(self.queue)):
+                if self.queue[i][0] >= self.queue[max_val_i][0]:
+                    max_val_i = i
+
+            return self.queue.pop(max_val_i)[1]
+        except IndexError:
+            print("error")
+            exit()
 
 
 class Tree:
-    def __init__(self, img, pos):
+    def __init__(self, img, pos, parent, number):
         x, y, z = pos
-        self.number = -1
+        self.number = number
         self.childs = []
-        self.parent = None
+        self.parent = parent
         self.visited = False
         self.img = img
         self.resized_img = cv2.resize(img, (MODEL_RES, MODEL_RES)) / 255.
@@ -30,43 +60,14 @@ class Tree:
         self.z = z
         self.proba = None
         self.V = None
-
-    def add_child(self, child):
-        child.parent = self
-        self.childs.append(child)
-
-    def get_parent_number(self):
-        return -1 if self.parent is None else self.parent.number
+        self.nb_childs = 0
 
     def get_state(self):
-        #imgs = []
-        #for child in self.childs:
-        #    imgs.append(child.resized_img)
-
-        #ab = np.concatenate((imgs[0], imgs[1]), axis=0)
-        #cd = np.concatenate((imgs[2], imgs[3]), axis=0)
-        #state = np.concatenate((ab, cd), axis=1)
-        #return np.array(state.squeeze())
         return np.array(self.resized_img.squeeze())
 
-    def visit(self, nb_action):
-        if self.visited:
-            return
+    def get_child(self, action, number):
 
-        #self.resized_img = np.zeros((MODEL_RES, MODEL_RES, 3))
-        self.number = nb_action
-        del (self.img)
-        self.img = None
-
-        self.visited = True
-
-    def get_childs(self, min_zoom):
-
-        if len(self.childs) != 0:
-            return
-
-        if self.z - 1 < min_zoom:
-            return
+        self.nb_childs += 1
 
         sub_z = self.z - 1
         sub_x = self.x << 1
@@ -75,19 +76,23 @@ class Tree:
         h = int(self.img.shape[0] / 2)
         w = int(self.img.shape[1] / 2)
 
-        for i in range(2):
-            for j in range(2):
-                x_ = sub_x + i
-                y_ = sub_y + j
-                child = Tree(self.img[h * j:h + h * j, w * i: w + w * i], (x_, y_, sub_z))
-                self.add_child(child)
+        if action == 0:
+            i = 0
+            j = 0
+        elif action == 1:
+            i = 1
+            j = 0
+        elif action == 2:
+            i = 0
+            j = 1
+        else:
+            i = 1
+            j = 1
 
-    def is_leaf(self):
-        is_leaf = True
-        for child in self.childs:
-            is_leaf *= child.visited
-        return is_leaf
+        x_ = sub_x + i
+        y_ = sub_y + j
 
+        return Tree(self.img[h * j:h + h * j, w * i: w + w * i], (x_, y_, sub_z), self.number, number)
 
 def check_cuda():
     """
@@ -109,6 +114,7 @@ class Environment:
         self.current_node = None
         self.nb_good_choice = None
         self.nb_bad_choice = None
+        self.Queue = None
         self.conventional_policy_nb_step = None
         self.full_img = None
         self.root = None
@@ -145,7 +151,7 @@ class Environment:
                               self.charlie_x:self.charlie_x + self.charlie.shape[1]] = self.charlie
                 break
 
-        pad = 2 ** self.min_zoom
+        pad = 2 ** (self.min_zoom - 1)
         nb_line = self.W / pad
         nb_col = int(self.charlie_y / pad)
         last = int(self.charlie_x / pad)
@@ -159,10 +165,10 @@ class Environment:
         """
         del self.history
         del self.sub_images_queue
-        del self.root
-        gc.collect()
+
         self.sub_images_queue = []
         self.history = []
+        self.pq = PriorityQueue()
         self.nb_actions_taken = 0
         self.nb_bad_choice = 0
         self.nb_good_choice = 0
@@ -175,10 +181,7 @@ class Environment:
         if self.difficulty > 1:
             self.init_env()
 
-        self.root = Tree(self.full_img, (0, 0, self.max_zoom))
-        self.current_node = self.root
-        self.current_node.get_childs(self.min_zoom)
-        self.current_node.visit(0)
+        self.current_node = Tree(self.full_img, (0, 0, self.max_zoom), -1, self.nb_actions_taken)
         S = self.current_node.get_state()
 
         return S
@@ -204,8 +207,6 @@ class Environment:
             self.max_zoom += 1
             max_ = 2 ** self.max_zoom
 
-        pad = max_ - np.max([self.W, self.H])
-
         self.base_img = cv2.copyMakeBorder(self.base_img, 0, max_ - self.H, 0, max_ - self.W, cv2.BORDER_CONSTANT, None,
                                            value=0)
         self.base_mask = cv2.copyMakeBorder(self.base_mask, 0, max_ - self.H, 0, max_ - self.W, cv2.BORDER_CONSTANT,
@@ -223,7 +224,7 @@ class Environment:
         self.compute_mask_map()
         self.hist_img = cv2.resize(self.full_img, (HIST_RES, HIST_RES))
         self.heat_map = np.zeros((ZOOM_DEPTH + 1, HIST_RES, HIST_RES))
-        self.V_map = np.full((ZOOM_DEPTH + 1, HIST_RES, HIST_RES), -1.)
+        self.V_map = np.full((ZOOM_DEPTH + 1, HIST_RES, HIST_RES), -10.)
 
     def compute_mask_map(self):
         """
@@ -265,10 +266,7 @@ class Environment:
 
     def exploit(self, probs, V):
         A = np.argmax(probs)
-        p = probs[A]
         probs[A] = 0.
-        giveaway = p / (np.count_nonzero(probs) + 0.00000001)
-        probs[probs != 0.] += giveaway
         self.current_node.proba = probs
         self.current_node.V = V
         return A
@@ -303,29 +301,31 @@ class Environment:
 
         return False
 
-    def take_action(self, action, V=0.):
+    def take_action(self, action):
 
         reward = -1.
         self.nb_actions_taken += 1
         is_terminal = False
-        proba = None
 
-        parent_n = self.current_node.get_parent_number()
+        parent_n = self.current_node.parent
         current_n = self.current_node.number
 
+        child = self.current_node.get_child(action, self.nb_actions_taken)
 
-        if not self.current_node.childs[action].visited:
-            self.current_node = self.current_node.childs[action]
+        node_info = (parent_n, current_n, self.nb_actions_taken)
 
-        self.current_node.get_childs(self.min_zoom)
-        self.current_node.visit(self.nb_actions_taken)
+        if self.current_node.nb_childs < 4:
+            self.pq.append(self.current_node, self.current_node.V)
 
-        next_n = self.current_node.number
-        node_info = (parent_n, current_n, next_n)
+        if not self.current_node.z <= self.min_zoom:
+            self.pq.append(child, 100.)
 
-        x = self.current_node.x
-        y = self.current_node.y
-        z = self.current_node.z
+        if self.pq.isEmpty():
+            is_terminal = True
+
+        x = child.x
+        y = child.y
+        z = child.z
 
         # Different Checks
         if self.sub_image_contain_roi(x, y, z):
@@ -333,22 +333,17 @@ class Environment:
         else:
             self.nb_bad_choice += 1
 
-        if z <= self.min_zoom and self.sub_img_contain_charlie(x, y, z):
-            reward = 10.
+        if z < self.min_zoom and self.sub_img_contain_charlie(x, y, z):
+            reward = 100.
             is_terminal = True
 
         self.history.append((x, y, z))
 
         if self.evaluation_mode:
-            self.record(x, y, z, self.current_node.parent.V)
+            self.record(x, y, z, self.current_node.V)
 
-        # if the current node is a leaf we need to go up the tree
-        while self.current_node.is_leaf():
-            if self.current_node.parent is not None:
-                self.current_node = self.current_node.parent
-            else:
-                is_terminal = True
-                break
+        if not self.pq.isEmpty():
+            self.current_node = self.pq.pop()
 
         S_prime = self.current_node.get_state()
 

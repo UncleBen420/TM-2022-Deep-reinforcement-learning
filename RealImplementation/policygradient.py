@@ -14,7 +14,7 @@ from torchvision import transforms
 from tqdm import tqdm
 
 class PolicyNet(nn.Module):
-    def __init__(self, img_res=64, n_hidden_nodes=128, n_kernels=32):
+    def __init__(self, img_res=64, n_hidden_nodes=128, n_kernels=64):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -77,11 +77,7 @@ class PolicyNet(nn.Module):
         return patches
 
     def forward(self, state):
-        #xs = []
-        #for i in range(4):
-        #    xs.append(self.backbone(state[:, i]))
         x = self.backbone(state)
-        #x = torch.concat(x, 1)
         x = self.middle(x)
         return self.head(x), self.value_head(x)
 
@@ -91,10 +87,10 @@ class PolicyNet(nn.Module):
 
 class PolicyGradient:
 
-    def __init__(self, environment, learning_rate=0.001,
-                 episodes=100, val_episode=100, gamma=0.7,
-                 entropy_coef=0.001, beta_coef=0.02, clip=0.5,
-                 lr_gamma=0.8, batch_size=256, loss_function="ppo"):
+    def __init__(self, environment, learning_rate=0.0001,
+                 episodes=100, val_episode=100, gamma=0.3,
+                 entropy_coef=0.001, beta_coef=0.01,
+                 lr_gamma=0.5, batch_size=1000, loss_function="a2c"):
 
         self.gamma = gamma
         self.environment = environment
@@ -107,14 +103,11 @@ class PolicyGradient:
         self.policy = PolicyNet(img_res=environment.img_res)
         self.action_space = environment.nb_action
         self.batch_size = batch_size
-        self.clip = clip
         print(self.policy)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=learning_rate)
         self.scheduler = StepLR(self.optimizer, step_size=100, gamma=lr_gamma)
 
-        if loss_function == "ppo":
-            self.loss_function = self.ppo
-        elif loss_function == "a2c":
+        if loss_function == "a2c":
             self.loss_function = self.a2c
         elif loss_function == "reinforce":
             self.loss_function = self.reinforce
@@ -147,9 +140,9 @@ class PolicyGradient:
         entropy_loss = self.entropy_coef * (action_probs * log_probs).sum(1).mean()
         value_loss = self.beta_coef * torch.nn.functional.mse_loss(values.squeeze(), rewards)
         policy_loss = - (advantages * selected_log_probs).mean()
-        loss = policy_loss + entropy_loss
+        loss = policy_loss + entropy_loss + value_loss
         # upgrade
-        value_loss.backward(retain_graph=True)
+        #value_loss.backward(retain_graph=True)
         loss.backward()
         torch.nn.utils.clip_grad_value_(self.policy.parameters(), 100.)
         self.optimizer.step()
@@ -177,7 +170,6 @@ class PolicyGradient:
             self.optimizer.zero_grad()
             action_probs, V = self.policy(S_)
             action_probs = torch.nn.functional.softmax(action_probs, dim=1)
-            #TD_error = G_ - V.detach()
 
             log_probs = torch.log(action_probs)
             log_probs[torch.isinf(log_probs)] = 0
@@ -199,30 +191,22 @@ class PolicyGradient:
         V = rewards[:, 4].astype(float)
         node_info = rewards[:, 0:3].astype(int)
 
-        for ni in node_info[::-1]:
-            parent, current, child = ni
-            parent_index = np.all(node_info[:, [1, 2]] == [parent, current], axis=1)
-            current_index = np.all(node_info[:, [1, 2]] == [current, child], axis=1)
-
-            if parent != -1:
-                #G[parent_index] += self.gamma * G[current_index] / 4
-
-                G[parent_index] += self.gamma * G[current_index]
-        # calculate the TD error as A = Q(S,A) - V(S) => A + V(S') - V(S)
         TDE = V.copy()
+
         for ni in node_info[::-1]:
             parent, current, child = ni
             parent_index = np.all(node_info[:, [1, 2]] == [parent, current], axis=1)
             current_index = np.all(node_info[:, [1, 2]] == [current, child], axis=1)
 
             if parent != -1:
+                G[parent_index] += self.gamma * G[current_index]
                 TDE[parent_index] += self.gamma * V[current_index]
-        TDE - 2 * V
+
+        # calculate the TD error as A = Q(S,A) - V(S) => A + V(S') - V(S)
         return G.tolist(), (G + (TDE - 2 * V)).tolist()
 
     def fit(self):
 
-        good_behaviour_dataset = []
         # for plotting
         losses = []
         rewards = []
@@ -260,7 +244,6 @@ class PolicyGradient:
                     if existing_proba is None:
                         with torch.no_grad():
                             action_probs, V = self.policy(S)
-                            #V = action_probs.sum().item()
                             action_probs = torch.nn.functional.softmax(action_probs, dim=-1)
                             action_probs = action_probs.detach().cpu().numpy()[0]
                             V = V.item()
@@ -347,6 +330,7 @@ class PolicyGradient:
                     if existing_proba is None:
                         with torch.no_grad():
                             probs, V = self.policy(S)
+                            probs = torch.nn.functional.softmax(probs, dim=-1)
                             probs = probs.detach().cpu().numpy()[0]
                             V = V.item()
                     else:
@@ -356,7 +340,7 @@ class PolicyGradient:
                     # no need to explore, so we select the most probable action
                     probs /= probs.sum()
                     A = self.environment.exploit(probs, V)
-                    S_prime, R, is_terminal, _, existing_pred = self.environment.take_action(A, V)
+                    S_prime, R, is_terminal, _, existing_pred = self.environment.take_action(A)
 
                     existing_proba, existing_v = existing_pred
 

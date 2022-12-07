@@ -105,11 +105,11 @@ if __name__ == '__main__':
     # Initialise the environment
     # ------------------------------------------------------------------------------------------------------------------
 
-    ENVIRONMENT = environment.Environment("../../Dataset_waldo", difficulty=0)
+    ENVIRONMENT = environment.Environment("../../Dataset_waldo", difficulty=1)
     ENVIRONMENT.init_env()
     EVALUATOR = Evaluator()
-    PG = PolicyGradient(ENVIRONMENT, episodes=10, val_episode=100, loss_function="a2c")
-    DUMMY = DummyAgent(ENVIRONMENT, val_episode=10)
+    PG = PolicyGradient(ENVIRONMENT, episodes=1000, val_episode=100, loss_function="a2c")
+    DUMMY = DummyAgent(ENVIRONMENT, val_episode=100)
 
     # ------------------------------------------------------------------------------------------------------------------
     # Train the agent
@@ -142,6 +142,25 @@ if __name__ == '__main__':
     #plt.imshow(ENVIRONMENT.V_map, cmap="gist_heat", alpha=0.4)
     #plt.show()
 
+    fig = plt.figure()
+    ax = plt.axes(projection="3d")
+    policy = ENVIRONMENT.V_map
+
+    x, y = np.meshgrid(np.linspace(0, 1, policy.shape[1]), np.linspace(0, 1, policy.shape[2]))
+
+    for i in range(policy.shape[0]):
+        cb = ax.contourf(x, y, policy[i], 100, zdir='z', offset=i * 50, cmap="plasma", alpha=0.4)
+    plt.colorbar(cb)
+
+    _ = ax.contourf(x,
+                    y,
+                    cv2.cvtColor(ENVIRONMENT.hist_img, cv2.COLOR_BGR2GRAY),
+                    100,
+                    zdir='z',
+                    cmap='Greys_r',
+                    offset=-1)
+    plt.show()
+
     # ------------------------------------------------------------------------------------------------------------------
     # Plot Agent sub image visited
     # ------------------------------------------------------------------------------------------------------------------
@@ -158,7 +177,7 @@ if __name__ == '__main__':
 
     fig = plt.figure()
     ax = plt.axes(projection="3d")
-    policy = ENVIRONMENT.V_map
+    policy = ENVIRONMENT.heat_map
 
     x, y = np.meshgrid(np.linspace(0, 1, policy.shape[1]), np.linspace(0, 1, policy.shape[2]))
 
@@ -171,7 +190,7 @@ if __name__ == '__main__':
                     100,
                     zdir='z',
                     cmap='Greys_r',
-                    offset=49)
+                    offset=-1)
     plt.show()
 
     ENVIRONMENT.get_gif_trajectory("real_implementation_trajectory.gif")
