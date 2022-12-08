@@ -132,6 +132,10 @@ class Environment:
         self.charlie = cv2.cvtColor(cv2.imread(os.path.join(dataset_path, "waldo.png")), cv2.COLOR_BGR2RGB)
         self.image_list = sorted(os.listdir(os.path.join(dataset_path, "images")))
         self.mask_list = sorted(os.listdir(os.path.join(dataset_path, "masks")))
+        if self.difficulty > 1:
+            self.validation_image = self.image_list.pop(0)
+            self.validation_mask = self.mask_list.pop(0)
+
         self.dataset_path = dataset_path
         self.evaluation_mode = False
         self.action_space = np.arange(4)
@@ -170,6 +174,7 @@ class Environment:
         self.history = []
         self.pq = PriorityQueue()
         self.nb_actions_taken = 0
+        self.nb_max_zoom = 0
         self.nb_bad_choice = 0
         self.nb_good_choice = 0
 
@@ -192,9 +197,14 @@ class Environment:
         It place charlie on the image has well
         """
         del self.full_img
-        index = random.randint(0, len(self.image_list) - 1)
-        img = os.path.join(self.dataset_path, "images", self.image_list[index])
-        mask = os.path.join(self.dataset_path, "masks", self.mask_list[index])
+
+        if self.evaluation_mode and self.difficulty > 1:
+            img = os.path.join(self.dataset_path, "images", self.validation_image)
+            mask = os.path.join(self.dataset_path, "masks", self.validation_mask)
+        else:
+            index = random.randint(0, len(self.image_list) - 1)
+            img = os.path.join(self.dataset_path, "images", self.image_list[index])
+            mask = os.path.join(self.dataset_path, "masks", self.mask_list[index])
 
         self.base_img = cv2.cvtColor(cv2.imread(img), cv2.COLOR_BGR2RGB)
         self.base_mask = cv2.imread(mask)
@@ -224,7 +234,7 @@ class Environment:
         self.compute_mask_map()
         self.hist_img = cv2.resize(self.full_img, (HIST_RES, HIST_RES))
         self.heat_map = np.zeros((ZOOM_DEPTH + 1, HIST_RES, HIST_RES))
-        self.V_map = np.full((ZOOM_DEPTH + 1, HIST_RES, HIST_RES), -10.)
+        self.V_map = np.full((ZOOM_DEPTH + 1, HIST_RES, HIST_RES), np.inf)
 
     def compute_mask_map(self):
         """
@@ -318,7 +328,9 @@ class Environment:
             self.pq.append(self.current_node, self.current_node.V)
 
         if not self.current_node.z <= self.min_zoom:
-            self.pq.append(child, 100.)
+            self.pq.append(child, self.current_node.V)
+        else:
+            self.nb_max_zoom += 1
 
         if self.pq.isEmpty():
             is_terminal = True

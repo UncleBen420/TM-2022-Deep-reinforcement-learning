@@ -19,6 +19,7 @@ class DummyAgent:
         good_choices = []
         bad_choices = []
         time_by_episode = []
+        nb_effective_action = []
 
         with tqdm(range(self.val_episode), unit="episode") as episode:
             for i in episode:
@@ -36,8 +37,10 @@ class DummyAgent:
 
                     probs /= probs.sum()
                     # no need to explore, so we select the most probable action
-                    A = self.environment.exploit(probs, random.randint(0,100))
-                    S_prime, R, is_terminal, _, _ = self.environment.take_action(A)
+                    A = self.environment.exploit(probs, 0)
+                    S_prime, R, is_terminal, _, existing_pred = self.environment.take_action(A)
+
+                    existing_proba, _ = existing_pred
 
                     sum_episode_reward += R
                     if is_terminal:
@@ -48,13 +51,16 @@ class DummyAgent:
                 st = self.environment.nb_actions_taken
                 gt = self.environment.nb_good_choice
                 bt = self.environment.nb_bad_choice
+                mz = self.environment.nb_max_zoom
                 nb_action.append(st)
+                nb_effective_action.append(mz)
+
                 time_by_episode.append(done_time - start_time)
                 good_choices.append(gt / (gt + bt + 0.00001))
                 bad_choices.append(bt / (gt + bt + 0.00001))
 
                 episode.set_postfix(rewards=rewards[-1], nb_action=st)
 
-        return rewards, nb_action, good_choices, bad_choices, [], time_by_episode
+        return rewards, nb_action, good_choices, bad_choices, [], time_by_episode, nb_effective_action
 
 

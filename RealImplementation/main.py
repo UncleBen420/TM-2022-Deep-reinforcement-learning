@@ -7,7 +7,6 @@ import environment
 from dummy_agent import DummyAgent
 from policygradient import PolicyGradient
 import cv2
-import seaborn as sns
 
 class Evaluator:
 
@@ -27,7 +26,7 @@ class Evaluator:
         '''
         print("starting fitting of {0}".format(name))
 
-        losses, rewards, nb_action, good, bad = agent.fit()
+        losses, rewards, nb_action, good, bad, effective_action = agent.fit()
 
         self.fig.suptitle("hyper parameters selections for {0}".format(name))
 
@@ -36,7 +35,8 @@ class Evaluator:
         self.axs[0][0].set_xlabel('nb iteration')
         self.axs[0][0].set_ylabel('rewards')
 
-        self.axs[1][0].plot(nb_action, label=name)
+        self.axs[1][0].plot(nb_action, label="total")
+        self.axs[1][0].plot(effective_action, label="effective")
         self.axs[1][0].set_title('Number of actions took during the episode')
         self.axs[1][0].set_xlabel('nb iteration')
         self.axs[1][0].set_ylabel('nb step')
@@ -56,7 +56,7 @@ class Evaluator:
         self.axs[0][1].set_ylabel('loss')
 
     def evaluate(self, agent, name):
-        rewards, nb_action, good, bad, conventional, time = agent.exploit()
+        rewards, nb_action, good, bad, conventional, time, effective_action = agent.exploit()
         if len(conventional) > 0:
             self.axs[1][0].plot(conventional, label="conventional policy")
             time_conventional = np.array(conventional) * np.mean(np.array(time) / np.array(nb_action))
@@ -69,7 +69,7 @@ class Evaluator:
         self.axs[0][0].set_xlabel('nb iteration')
         self.axs[0][0].set_ylabel('rewards')
 
-        self.axs[1][0].plot(nb_action, label=name)
+        self.axs[1][0].plot(effective_action, label=name)
         self.axs[1][0].set_title('Number of actions took during the episode')
         self.axs[1][0].set_xlabel('nb iteration')
         self.axs[1][0].set_ylabel('nb step')
@@ -128,19 +128,6 @@ if __name__ == '__main__':
     ENVIRONMENT.evaluation_mode = True
     EVALUATOR.evaluate(PG, "Reinforce")
     EVALUATOR.show_eval()
-
-    # ------------------------------------------------------------------------------------------------------------------
-    # Plot Agent interest map
-    # ------------------------------------------------------------------------------------------------------------------
-
-    #x, y = np.meshgrid(np.linspace(0, 1, ENVIRONMENT.hist_img.shape[0]),
-    #                   np.linspace(0, 1, ENVIRONMENT.hist_img.shape[1]))
-    #cb = plt.contourf(x, y, ENVIRONMENT.V_map, 15, cmap="gist_heat")
-
-    #plt.colorbar(cb)
-    #plt.imshow(ENVIRONMENT.hist_img)
-    #plt.imshow(ENVIRONMENT.V_map, cmap="gist_heat", alpha=0.4)
-    #plt.show()
 
     fig = plt.figure()
     ax = plt.axes(projection="3d")

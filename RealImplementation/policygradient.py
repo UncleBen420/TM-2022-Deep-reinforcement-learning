@@ -14,7 +14,7 @@ from torchvision import transforms
 from tqdm import tqdm
 
 class PolicyNet(nn.Module):
-    def __init__(self, img_res=64, n_hidden_nodes=128, n_kernels=64):
+    def __init__(self, img_res=64, n_hidden_nodes=64, n_kernels=32):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -44,15 +44,17 @@ class PolicyNet(nn.Module):
                 torch.nn.Linear(n_kernels * 36, n_hidden_nodes),
                 torch.nn.ReLU(),
                 torch.nn.Linear(n_hidden_nodes, n_hidden_nodes >> 2),
+                torch.nn.ReLU(),
+                torch.nn.Linear(n_hidden_nodes >> 2, n_hidden_nodes >> 3),
                 torch.nn.ReLU()
             )
 
         self.head = torch.nn.Sequential(
-                torch.nn.Linear(n_hidden_nodes >> 2, 4)
+                torch.nn.Linear(n_hidden_nodes >> 3, 4)
             )
 
         self.value_head = torch.nn.Sequential(
-            torch.nn.Linear(n_hidden_nodes >> 2, 1)
+            torch.nn.Linear(n_hidden_nodes >> 3, 1)
         )
             
         self.backbone.to(self.device)
@@ -89,8 +91,8 @@ class PolicyGradient:
 
     def __init__(self, environment, learning_rate=0.0001,
                  episodes=100, val_episode=100, gamma=0.3,
-                 entropy_coef=0.001, beta_coef=0.01,
-                 lr_gamma=0.5, batch_size=1000, loss_function="a2c"):
+                 entropy_coef=0.005, beta_coef=0.05,
+                 lr_gamma=0.5, batch_size=64, pa_dataset_size=32, loss_function="a2c"):
 
         self.gamma = gamma
         self.environment = environment
@@ -103,6 +105,7 @@ class PolicyGradient:
         self.policy = PolicyNet(img_res=environment.img_res)
         self.action_space = environment.nb_action
         self.batch_size = batch_size
+        self.pa_dataset_size = pa_dataset_size
         print(self.policy)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=learning_rate)
         self.scheduler = StepLR(self.optimizer, step_size=100, gamma=lr_gamma)
@@ -141,42 +144,32 @@ class PolicyGradient:
         value_loss = self.beta_coef * torch.nn.functional.mse_loss(values.squeeze(), rewards)
         policy_loss = - (advantages * selected_log_probs).mean()
         loss = policy_loss + entropy_loss + value_loss
-        # upgrade
-        #value_loss.backward(retain_graph=True)
         loss.backward()
+
         torch.nn.utils.clip_grad_value_(self.policy.parameters(), 100.)
         self.optimizer.step()
         return loss.item()
 
-    def update_policy(self, batch):
+    def update_policy(self, batches):
 
         sum_loss = 0.
         counter = 0.
-        S, A, G, TD = batch
-        S = S.split(self.batch_size)
-        A = A.split(self.batch_size)
-        G = G.split(self.batch_size)
-        TD = TD.split(self.batch_size)
-
 
         # create batch of size edible by the gpu
-        for i in range(len(A)):
-            S_ = S[i]
-            A_ = A[i]
-            G_ = G[i]
-            TD_ = TD[i]
+        for batch in batches:
+            S, A, G, TD = batch
 
             # Calculate loss
             self.optimizer.zero_grad()
-            action_probs, V = self.policy(S_)
+            action_probs, V = self.policy(S)
             action_probs = torch.nn.functional.softmax(action_probs, dim=1)
 
             log_probs = torch.log(action_probs)
             log_probs[torch.isinf(log_probs)] = 0
 
-            selected_log_probs = torch.gather(log_probs, 1, A_.unsqueeze(1))
+            selected_log_probs = torch.gather(log_probs, 1, A.unsqueeze(1))
 
-            sum_loss += self.loss_function(TD_, G_, action_probs, log_probs, selected_log_probs, V)
+            sum_loss += self.loss_function(TD, G, action_probs, log_probs, selected_log_probs, V)
 
             counter += 1
         self.scheduler.step()
@@ -213,8 +206,11 @@ class PolicyGradient:
         nb_action = []
         good_choices = []
         bad_choices = []
+        nb_effective_action = []
 
         with tqdm(range(self.episodes), unit="episode") as episode:
+            pa_dataset = []
+            pa_weights = []
             for i in episode:
                 # ------------------------------------------------------------------------------------------------------
                 # EPISODE PREPARATION
@@ -223,6 +219,7 @@ class PolicyGradient:
                 S_batch = []
                 R_batch = []
                 A_batch = []
+
                 S = self.environment.reload_env()
 
                 # ------------------------------------------------------------------------------------------------------
@@ -284,9 +281,30 @@ class PolicyGradient:
                 TDE_batch = torch.FloatTensor(TDE_batch).to(self.policy.device)
 
                 # ------------------------------------------------------------------------------------------------------
+                # PAST ACTION DATASET PREPARATION
+                # ------------------------------------------------------------------------------------------------------
+                if len(pa_dataset) > self.pa_dataset_size:
+                    pa_dataset.pop(0)
+                    pa_weights.pop(0)
+
+                if len(pa_dataset) > 1:
+                    probabilities = (pa_weights - np.min(pa_weights)
+                                     + 0.00001) / (np.max(pa_weights) - np.min(pa_weights)
+                                                   + 0.00001)
+                    probabilities /= np.sum(probabilities)
+                    batches = random.choices(pa_dataset, weights=probabilities, k=1)
+                else:
+                    batches = []
+
+                batches.append((S_batch, A_batch, G_batch, TDE_batch))
+                # Past actions dataset updated with the current trajectory
+                pa_dataset.append((S_batch, A_batch, G_batch, TDE_batch))
+                pa_weights.append(sum_reward)
+
+                # ------------------------------------------------------------------------------------------------------
                 # MODEL OPTIMISATION
                 # ------------------------------------------------------------------------------------------------------
-                mean_loss = self.update_policy((S_batch, A_batch, G_batch, TDE_batch))
+                mean_loss = self.update_policy(batches)
 
                 # ------------------------------------------------------------------------------------------------------
                 # METRICS RECORD
@@ -296,14 +314,16 @@ class PolicyGradient:
                 st = self.environment.nb_actions_taken
                 gt = self.environment.nb_good_choice
                 bt = self.environment.nb_bad_choice
+                mz = self.environment.nb_max_zoom
                 nb_action.append(st)
+                nb_effective_action.append(mz)
                 good_choices.append(gt / (gt + bt + 0.00001))
                 bad_choices.append(bt / (gt + bt + 0.00001))
 
                 episode.set_postfix(rewards=sum_reward, loss=mean_loss,
                                     nb_action=st, V=sum_v / counter)
 
-        return losses, rewards, nb_action, good_choices, bad_choices
+        return losses, rewards, nb_action, good_choices, bad_choices, nb_effective_action
 
     def exploit(self):
 
@@ -313,6 +333,7 @@ class PolicyGradient:
         bad_choices = []
         conv_policy = []
         time_by_episode = []
+        nb_effective_action = []
 
         with tqdm(range(self.val_episode), unit="episode") as episode:
             for i in episode:
@@ -354,13 +375,15 @@ class PolicyGradient:
                 st = self.environment.nb_actions_taken
                 gt = self.environment.nb_good_choice
                 bt = self.environment.nb_bad_choice
+                mz = self.environment.nb_max_zoom
                 nb_action.append(st)
+                nb_effective_action.append(mz)
                 time_by_episode.append(done_time - start_time)
                 good_choices.append(gt / (gt + bt + 0.00001))
                 bad_choices.append(bt / (gt + bt + 0.00001))
 
                 episode.set_postfix(rewards=rewards[-1], nb_action=st)
 
-        return rewards, nb_action, good_choices, bad_choices, conv_policy, time_by_episode
+        return rewards, nb_action, good_choices, bad_choices, conv_policy, time_by_episode, nb_effective_action
 
 
