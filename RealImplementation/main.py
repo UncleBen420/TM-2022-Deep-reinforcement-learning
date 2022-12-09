@@ -105,10 +105,10 @@ if __name__ == '__main__':
     # Initialise the environment
     # ------------------------------------------------------------------------------------------------------------------
 
-    ENVIRONMENT = environment.Environment("../../Dataset_waldo", difficulty=1)
+    ENVIRONMENT = environment.Environment("../../Dataset_waldo", difficulty=2)
     ENVIRONMENT.init_env()
     EVALUATOR = Evaluator()
-    PG = PolicyGradient(ENVIRONMENT, episodes=1000, val_episode=100, loss_function="a2c")
+    PG = PolicyGradient(ENVIRONMENT, episodes=500, val_episode=100)
     DUMMY = DummyAgent(ENVIRONMENT, val_episode=100)
 
     # ------------------------------------------------------------------------------------------------------------------

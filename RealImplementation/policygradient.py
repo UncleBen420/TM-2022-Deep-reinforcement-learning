@@ -13,6 +13,7 @@ from torchvision import models
 from torchvision import transforms
 from tqdm import tqdm
 
+
 class PolicyNet(nn.Module):
     def __init__(self, img_res=64, n_hidden_nodes=64, n_kernels=32):
         super(PolicyNet, self).__init__()
@@ -41,22 +42,22 @@ class PolicyNet(nn.Module):
         )
 
         self.middle = torch.nn.Sequential(
-                torch.nn.Linear(n_kernels * 36, n_hidden_nodes),
-                torch.nn.ReLU(),
-                torch.nn.Linear(n_hidden_nodes, n_hidden_nodes >> 2),
-                torch.nn.ReLU(),
-                torch.nn.Linear(n_hidden_nodes >> 2, n_hidden_nodes >> 3),
-                torch.nn.ReLU()
-            )
+            torch.nn.Linear(n_kernels * 36, n_hidden_nodes),
+            torch.nn.ReLU(),
+            torch.nn.Linear(n_hidden_nodes, n_hidden_nodes >> 2),
+            torch.nn.ReLU(),
+            torch.nn.Linear(n_hidden_nodes >> 2, n_hidden_nodes >> 3),
+            torch.nn.ReLU()
+        )
 
         self.head = torch.nn.Sequential(
-                torch.nn.Linear(n_hidden_nodes >> 3, 4)
-            )
+            torch.nn.Linear(n_hidden_nodes >> 3, 4)
+        )
 
         self.value_head = torch.nn.Sequential(
             torch.nn.Linear(n_hidden_nodes >> 3, 1)
         )
-            
+
         self.backbone.to(self.device)
         self.middle.to(self.device)
         self.head.to(self.device)
@@ -73,7 +74,8 @@ class PolicyNet(nn.Module):
 
     def prepare_data(self, state):
         img = state.permute(0, 3, 1, 2)
-        patches = img.unfold(1, 3, 3).unfold(2, self.sub_img_res, self.sub_img_res).unfold(3, self.sub_img_res, self.sub_img_res)
+        patches = img.unfold(1, 3, 3).unfold(2, self.sub_img_res, self.sub_img_res).unfold(3, self.sub_img_res,
+                                                                                           self.sub_img_res)
         patches = patches.contiguous().view(1, 4, -1, self.sub_img_res, self.sub_img_res)
         patches = patches.permute(0, 2, 1, 3, 4)
         return patches
@@ -91,8 +93,8 @@ class PolicyGradient:
 
     def __init__(self, environment, learning_rate=0.0001,
                  episodes=100, val_episode=100, gamma=0.3,
-                 entropy_coef=0.005, beta_coef=0.05,
-                 lr_gamma=0.5, batch_size=64, pa_dataset_size=32, loss_function="a2c"):
+                 entropy_coef=0.01, beta_coef=0.05,
+                 lr_gamma=0.5, batch_size=64, pa_dataset_size=100):
 
         self.gamma = gamma
         self.environment = environment
@@ -110,68 +112,41 @@ class PolicyGradient:
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=learning_rate)
         self.scheduler = StepLR(self.optimizer, step_size=100, gamma=lr_gamma)
 
-        if loss_function == "a2c":
-            self.loss_function = self.a2c
-        elif loss_function == "reinforce":
-            self.loss_function = self.reinforce
-
     def minmax_scaling(self, x):
         return (x - self.min_r) / (self.max_r - self.min_r)
 
-    def reinforce(self, advantages, rewards, action_probs, log_probs, selected_log_probs, values):
-        # TD error is scaled to ensure no exploding gradient
-        # also it stabilise the learning : https://arxiv.org/pdf/2105.05347.pdf
-        self.min_r = min(torch.min(advantages), self.min_r)
-        self.max_r = max(torch.max(advantages), self.max_r)
-
-        rewards_n = self.minmax_scaling(rewards).unsqueeze(1)
-
-        selected_log_probs *= rewards_n
-        policy_loss = - selected_log_probs.mean()
-        policy_loss.backward()
-        self.optimizer.step()
-        return policy_loss.item()
-
     def a2c(self, advantages, rewards, action_probs, log_probs, selected_log_probs, values):
-
-        # TD error is scaled to ensure no exploding gradient
-        # also it stabilise the learning : https://arxiv.org/pdf/2105.05347.pdf
-        self.min_r = min(torch.min(advantages), self.min_r)
-        self.max_r = max(torch.max(advantages), self.max_r)
-        advantages = self.minmax_scaling(advantages).unsqueeze(1)
 
         entropy_loss = self.entropy_coef * (action_probs * log_probs).sum(1).mean()
         value_loss = self.beta_coef * torch.nn.functional.mse_loss(values.squeeze(), rewards)
-        policy_loss = - (advantages * selected_log_probs).mean()
+        policy_loss = - (advantages.unsqueeze(1) * selected_log_probs).mean()
         loss = policy_loss + entropy_loss + value_loss
         loss.backward()
 
-        torch.nn.utils.clip_grad_value_(self.policy.parameters(), 100.)
+        # torch.nn.utils.clip_grad_value_(self.policy.parameters(), 100.)
         self.optimizer.step()
         return loss.item()
 
-    def update_policy(self, batches):
+    def update_policy(self, batch):
 
         sum_loss = 0.
         counter = 0.
 
-        # create batch of size edible by the gpu
-        for batch in batches:
-            S, A, G, TD = batch
+        S, A, G, TD = batch
 
-            # Calculate loss
-            self.optimizer.zero_grad()
-            action_probs, V = self.policy(S)
-            action_probs = torch.nn.functional.softmax(action_probs, dim=1)
+        # Calculate loss
+        self.optimizer.zero_grad()
+        action_probs, V = self.policy(S)
+        action_probs = torch.nn.functional.softmax(action_probs, dim=1)
 
-            log_probs = torch.log(action_probs)
-            log_probs[torch.isinf(log_probs)] = 0
+        log_probs = torch.log(action_probs)
+        log_probs[torch.isinf(log_probs)] = 0
 
-            selected_log_probs = torch.gather(log_probs, 1, A.unsqueeze(1))
+        selected_log_probs = torch.gather(log_probs, 1, A.unsqueeze(1))
 
-            sum_loss += self.loss_function(TD, G, action_probs, log_probs, selected_log_probs, V)
+        sum_loss += self.a2c(TD, G, action_probs, log_probs, selected_log_probs, V)
 
-            counter += 1
+        counter += 1
         self.scheduler.step()
 
         return sum_loss / counter
@@ -209,8 +184,10 @@ class PolicyGradient:
         nb_effective_action = []
 
         with tqdm(range(self.episodes), unit="episode") as episode:
-            pa_dataset = []
-            pa_weights = []
+            S_pa_batch = None
+            A_pa_batch = None
+            TDE_pa_batch = None
+            G_pa_batch = None
             for i in episode:
                 # ------------------------------------------------------------------------------------------------------
                 # EPISODE PREPARATION
@@ -247,12 +224,12 @@ class PolicyGradient:
                     else:
                         action_probs = existing_proba
                         V = existing_v
-                    
-                    action_probs /= action_probs.sum() # resovle an know issue with numpy
+
+                    action_probs /= action_probs.sum()  # resovle an know issue with numpy
                     A = self.environment.follow_policy(action_probs, V)
 
                     sum_v += V
- 
+
                     S_prime, R, is_terminal, node_info, existing_pred = self.environment.take_action(A)
                     existing_proba, existing_v = existing_pred
                     parent, current, child = node_info
@@ -275,36 +252,62 @@ class PolicyGradient:
                 # ------------------------------------------------------------------------------------------------------
                 # BATCH PREPARATION
                 # ------------------------------------------------------------------------------------------------------
+                weights = TDE_batch
                 S_batch = torch.concat(S_batch).to(self.policy.device)
                 A_batch = torch.LongTensor(A_batch).to(self.policy.device)
                 G_batch = torch.FloatTensor(G_batch).to(self.policy.device)
                 TDE_batch = torch.FloatTensor(TDE_batch).to(self.policy.device)
 
+                # TD error is scaled to ensure no exploding gradient
+                # also it stabilise the learning : https://arxiv.org/pdf/2105.05347.pdf
+                self.min_r = min(torch.min(TDE_batch), self.min_r)
+                self.max_r = max(torch.max(TDE_batch), self.max_r)
+                TDE_batch = self.minmax_scaling(TDE_batch)
+
                 # ------------------------------------------------------------------------------------------------------
                 # PAST ACTION DATASET PREPARATION
                 # ------------------------------------------------------------------------------------------------------
-                if len(pa_dataset) > self.pa_dataset_size:
-                    pa_dataset.pop(0)
-                    pa_weights.pop(0)
 
-                if len(pa_dataset) > 1:
-                    probabilities = (pa_weights - np.min(pa_weights)
-                                     + 0.00001) / (np.max(pa_weights) - np.min(pa_weights)
-                                                   + 0.00001)
-                    probabilities /= np.sum(probabilities)
-                    batches = random.choices(pa_dataset, weights=probabilities, k=1)
+                if A_pa_batch is not None and len(A_pa_batch) > 0:
+                    batch = (torch.cat((S_pa_batch, S_batch), 0),
+                             torch.cat((A_pa_batch, A_batch), 0),
+                             torch.cat((G_pa_batch, G_batch), 0),
+                             torch.cat((TDE_pa_batch, TDE_batch), 0))
                 else:
-                    batches = []
+                    batch = (S_batch, A_batch, G_batch, TDE_batch)
 
-                batches.append((S_batch, A_batch, G_batch, TDE_batch))
-                # Past actions dataset updated with the current trajectory
-                pa_dataset.append((S_batch, A_batch, G_batch, TDE_batch))
-                pa_weights.append(sum_reward)
+                nb_new_memories = min(10, counter)
+                idx = torch.multinomial(1 - TDE_batch, nb_new_memories, replacement=True)
+                if A_pa_batch is None:
+                    A_pa_batch = A_batch[idx]
+                    S_pa_batch = S_batch[idx]
+                    G_pa_batch = G_batch[idx]
+                    TDE_pa_batch = TDE_batch[idx]
+                else:
+                    A_pa_batch = torch.cat((A_pa_batch, A_batch[idx]), 0)
+                    S_pa_batch = torch.cat((S_pa_batch, S_batch[idx]), 0)
+                    G_pa_batch = torch.cat((G_pa_batch, G_batch[idx]), 0)
+                    TDE_pa_batch = torch.cat((TDE_pa_batch, TDE_batch[idx]), 0)
+
+                if len(A_pa_batch) > self.pa_dataset_size:
+                    # shuffling the batch
+                    shuffle_index = torch.randperm(len(A_pa_batch))
+                    A_pa_batch = A_pa_batch[shuffle_index]
+                    G_pa_batch = G_pa_batch[shuffle_index]
+                    S_pa_batch = S_pa_batch[shuffle_index]
+                    TDE_pa_batch = TDE_pa_batch[shuffle_index]
+
+                    # dataset clipping
+                    surplus = len(A_pa_batch) - self.pa_dataset_size
+                    _, A_pa_batch = torch.split(A_pa_batch, [surplus, self.pa_dataset_size])
+                    _, G_pa_batch = torch.split(G_pa_batch, [surplus, self.pa_dataset_size])
+                    _, S_pa_batch = torch.split(S_pa_batch, [surplus, self.pa_dataset_size])
+                    _, TDE_pa_batch = torch.split(TDE_pa_batch, [surplus, self.pa_dataset_size])
 
                 # ------------------------------------------------------------------------------------------------------
                 # MODEL OPTIMISATION
                 # ------------------------------------------------------------------------------------------------------
-                mean_loss = self.update_policy(batches)
+                mean_loss = self.update_policy(batch)
 
                 # ------------------------------------------------------------------------------------------------------
                 # METRICS RECORD
@@ -385,5 +388,3 @@ class PolicyGradient:
                 episode.set_postfix(rewards=rewards[-1], nb_action=st)
 
         return rewards, nb_action, good_choices, bad_choices, conv_policy, time_by_episode, nb_effective_action
-
-
