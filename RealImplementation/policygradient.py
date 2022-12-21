@@ -91,10 +91,10 @@ class PolicyNet(nn.Module):
 
 class PolicyGradient:
 
-    def __init__(self, environment, learning_rate=0.0001,
+    def __init__(self, environment, learning_rate=0.001,
                  episodes=100, val_episode=100, gamma=0.3,
-                 entropy_coef=0.01, beta_coef=0.05,
-                 lr_gamma=0.5, batch_size=64, pa_dataset_size=100):
+                 entropy_coef=0.01, beta_coef=0.01,
+                 lr_gamma=0.5, batch_size=64, pa_dataset_size=1000, pa_batch_size=200):
 
         self.gamma = gamma
         self.environment = environment
@@ -108,6 +108,7 @@ class PolicyGradient:
         self.action_space = environment.nb_action
         self.batch_size = batch_size
         self.pa_dataset_size = pa_dataset_size
+        self.pa_batch_size = pa_batch_size
         print(self.policy)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=learning_rate)
         self.scheduler = StepLR(self.optimizer, step_size=100, gamma=lr_gamma)
@@ -117,7 +118,7 @@ class PolicyGradient:
 
     def a2c(self, advantages, rewards, action_probs, log_probs, selected_log_probs, values):
 
-        entropy_loss = self.entropy_coef * (action_probs * log_probs).sum(1).mean()
+        entropy_loss = - self.entropy_coef * (action_probs * log_probs).sum(1).mean()
         value_loss = self.beta_coef * torch.nn.functional.mse_loss(values.squeeze(), rewards)
         policy_loss = - (advantages.unsqueeze(1) * selected_log_probs).mean()
         loss = policy_loss + entropy_loss + value_loss
@@ -268,15 +269,18 @@ class PolicyGradient:
                 # PAST ACTION DATASET PREPARATION
                 # ------------------------------------------------------------------------------------------------------
 
-                if A_pa_batch is not None and len(A_pa_batch) > 0:
-                    batch = (torch.cat((S_pa_batch, S_batch), 0),
-                             torch.cat((A_pa_batch, A_batch), 0),
-                             torch.cat((G_pa_batch, G_batch), 0),
-                             torch.cat((TDE_pa_batch, TDE_batch), 0))
+                if A_pa_batch is not None and len(A_pa_batch) > self.pa_batch_size:
+                    batch = (torch.cat((S_pa_batch[0:self.pa_batch_size], S_batch), 0),
+                             torch.cat((A_pa_batch[0:self.pa_batch_size], A_batch), 0),
+                             torch.cat((G_pa_batch[0:self.pa_batch_size], G_batch), 0),
+                             torch.cat((TDE_pa_batch[0:self.pa_batch_size], TDE_batch), 0))
                 else:
                     batch = (S_batch, A_batch, G_batch, TDE_batch)
 
+                # Add some experiences to the buffer with respect of TD error
                 nb_new_memories = min(10, counter)
+
+                # idx = torch.randperm(len(A_batch))[:nb_new_memories]
                 idx = torch.multinomial(1 - TDE_batch, nb_new_memories, replacement=True)
                 if A_pa_batch is None:
                     A_pa_batch = A_batch[idx]
@@ -289,6 +293,7 @@ class PolicyGradient:
                     G_pa_batch = torch.cat((G_pa_batch, G_batch[idx]), 0)
                     TDE_pa_batch = torch.cat((TDE_pa_batch, TDE_batch[idx]), 0)
 
+                # clip the buffer if it's to big
                 if len(A_pa_batch) > self.pa_dataset_size:
                     # shuffling the batch
                     shuffle_index = torch.randperm(len(A_pa_batch))

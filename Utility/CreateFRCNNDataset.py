@@ -11,7 +11,7 @@ import numpy as np
 
 
 def generate_random_image(img):
-    frcnn_res = 320
+    frcnn_res = 100
     w = img.shape[1]
     h = img.shape[0]
     x_pad = random.randint(0, w - frcnn_res)
@@ -58,17 +58,6 @@ def generate_frcnn_X_Y(img, labels, nb_sub_img, out_dir_label, out_dir_img, name
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(
-        description='This program allow user to select images in Dota dataset with ship in it')
-    parser.add_argument('-i', '--img_path', help='the path to the images folder')
-    parser.add_argument('-l', '--label_path', help='the path to the labels folder')
-    parser.add_argument('-o', '--out_path', help='the path where images will be stored')
-    parser.add_argument('-n', '--nb_sub_image', help='the number of sub images that will be created per images')
-
-    args = parser.parse_args()
-
-    stored_image_path = os.path.join(args.out_path, "images")
-    stored_label_path = os.path.join(args.out_path, "labels")
 
     if os.path.exists(stored_image_path) or os.path.exists(stored_label_path):
         exit(-1)

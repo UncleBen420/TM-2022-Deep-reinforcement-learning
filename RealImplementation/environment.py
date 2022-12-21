@@ -12,7 +12,7 @@ import gc
 from matplotlib import pyplot as plt
 
 MODEL_RES = 64
-HIST_RES = 100
+HIST_RES = 255
 ZOOM_DEPTH = 3
 
 
@@ -69,9 +69,7 @@ class Tree:
 
         self.nb_childs += 1
 
-        sub_z = self.z - 1
-        sub_x = self.x << 1
-        sub_y = self.y << 1
+        sub_z = self.z + 1
 
         h = int(self.img.shape[0] / 2)
         w = int(self.img.shape[1] / 2)
@@ -89,8 +87,8 @@ class Tree:
             i = 1
             j = 1
 
-        x_ = sub_x + i
-        y_ = sub_y + j
+        x_ = self.x + (i * w)
+        y_ = self.y + (j * h)
 
         return Tree(self.img[h * j:h + h * j, w * i: w + w * i], (x_, y_, sub_z), self.number, number)
 
@@ -132,7 +130,7 @@ class Environment:
         self.charlie = cv2.cvtColor(cv2.imread(os.path.join(dataset_path, "waldo.png")), cv2.COLOR_BGR2RGB)
         self.image_list = sorted(os.listdir(os.path.join(dataset_path, "images")))
         self.mask_list = sorted(os.listdir(os.path.join(dataset_path, "masks")))
-        if self.difficulty > 1:
+        if self.difficulty > 2:
             self.validation_image = self.image_list.pop(0)
             self.validation_mask = self.mask_list.pop(0)
 
@@ -146,8 +144,8 @@ class Environment:
         this method place change the charlie's position on the map.
         """
         while True:
-            x = random.randint(0, self.W - 1)
-            y = random.randint(0, self.H - 1)
+            x = random.randint(0, self.W - self.charlie.shape[1] - 100)
+            y = random.randint(0, self.H - self.charlie.shape[0] - 100)
             if self.mask[y][x][0] == 0:
                 self.charlie_x = x
                 self.charlie_y = y
@@ -155,10 +153,9 @@ class Environment:
                               self.charlie_x:self.charlie_x + self.charlie.shape[1]] = self.charlie
                 break
 
-        pad = 2 ** (self.min_zoom - 1)
-        nb_line = self.W / pad
-        nb_col = int(self.charlie_y / pad)
-        last = int(self.charlie_x / pad)
+        nb_line = self.W / self.min_res
+        nb_col = int(x / self.min_res)
+        last = int(y / self.min_res)
         self.conventional_policy_nb_step = nb_line * nb_col + last + 1
 
     def reload_env(self):
@@ -178,15 +175,28 @@ class Environment:
         self.nb_bad_choice = 0
         self.nb_good_choice = 0
 
-        if self.difficulty > 0:
+        if self.difficulty == 3:
+            self.init_env()
+
+        elif self.difficulty == 2:
+            del self.full_img
+            nb_rot = random.randint(0, 3)
+            self.full_img = self.base_img[nb_rot].copy()
+            self.mask = self.base_mask[nb_rot].copy()
+
+            self.place_charlie()
+            self.compute_mask_map()
+            self.hist_img = cv2.resize(self.full_img, (HIST_RES, HIST_RES))
+            self.heat_map = np.zeros((ZOOM_DEPTH + 1, HIST_RES, HIST_RES))
+            self.V_map = np.full((ZOOM_DEPTH + 1, HIST_RES, HIST_RES), np.inf)
+
+        elif self.difficulty == 1:
             del self.full_img
             self.full_img = self.base_img.copy()
             self.place_charlie()
 
-        if self.difficulty > 1:
-            self.init_env()
 
-        self.current_node = Tree(self.full_img, (0, 0, self.max_zoom), -1, self.nb_actions_taken)
+        self.current_node = Tree(self.full_img, (0, 0, 0), -1, self.nb_actions_taken)
         S = self.current_node.get_state()
 
         return S
@@ -198,7 +208,7 @@ class Environment:
         """
         del self.full_img
 
-        if self.evaluation_mode and self.difficulty > 1:
+        if self.evaluation_mode and self.difficulty > 2:
             img = os.path.join(self.dataset_path, "images", self.validation_image)
             mask = os.path.join(self.dataset_path, "masks", self.validation_mask)
         else:
@@ -208,33 +218,42 @@ class Environment:
 
         self.base_img = cv2.cvtColor(cv2.imread(img), cv2.COLOR_BGR2RGB)
         self.base_mask = cv2.imread(mask)
+
         self.H, self.W, self.channels = self.base_img.shape
         # check which dimention is the bigger
         max_ = np.max([self.W, self.H])
         # check that the image is divisble by 2
-        self.max_zoom = int(math.log(max_, 2))
-        if 2 ** self.max_zoom < max_:
-            self.max_zoom += 1
-            max_ = 2 ** self.max_zoom
+        if max_ % 2:
+            max_ += 1
 
-        self.base_img = cv2.copyMakeBorder(self.base_img, 0, max_ - self.H, 0, max_ - self.W, cv2.BORDER_CONSTANT, None,
-                                           value=0)
-        self.base_mask = cv2.copyMakeBorder(self.base_mask, 0, max_ - self.H, 0, max_ - self.W, cv2.BORDER_CONSTANT,
+        self.full_img = cv2.copyMakeBorder(self.base_img, 0, max_ - self.H, 0,
+                                           max_ - self.W, cv2.BORDER_CONSTANT, None, value=0)
+
+        self.mask = cv2.copyMakeBorder(self.base_mask, 0, max_ - self.H, 0, max_ - self.W, cv2.BORDER_CONSTANT,
                                             None, value=[255, 255, 255])
         self.W = max_
         self.H = max_
         self.ratio = HIST_RES / self.H
-        self.max_zoom = int(math.log(self.W, 2))
-        self.min_zoom = self.max_zoom - ZOOM_DEPTH
 
-        self.mask = self.base_mask
-        self.full_img = self.base_img.copy()
+        self.min_res = max_
+
+        self.min_res = self.min_res >> (ZOOM_DEPTH + 1)
 
         self.place_charlie()
         self.compute_mask_map()
         self.hist_img = cv2.resize(self.full_img, (HIST_RES, HIST_RES))
         self.heat_map = np.zeros((ZOOM_DEPTH + 1, HIST_RES, HIST_RES))
         self.V_map = np.full((ZOOM_DEPTH + 1, HIST_RES, HIST_RES), np.inf)
+
+        if self.difficulty == 2:
+            temp_img = []
+            temp_mask = []
+            for rot in range(4):
+                temp_img.append(np.rot90(self.base_img, rot))
+                temp_mask.append(np.rot90(self.base_mask, rot))
+
+            self.base_img = temp_img
+            self.base_mask = temp_mask
 
     def compute_mask_map(self):
         """
@@ -254,15 +273,16 @@ class Environment:
         self.ROI[0, :] *= pad
         self.ROI[1, :] *= pad
 
-    def record(self, x, y, z, V):
-        window = self.zoom_padding << (z - 1)
-        self.heat_map[z - self.min_zoom + 1][int(window * y * self.ratio):
-                                             int((window + window * y) * self.ratio),
-        int(window * x * self.ratio):
-        int((window + window * x) * self.ratio)] += 1
-
-        self.V_map[z - self.min_zoom + 1][int(window * y * self.ratio): int((window + window * y) * self.ratio),
-        int(window * x * self.ratio): int((window + window * x) * self.ratio)] = V
+    def record(self, x, y, z, window, V):
+        ratio = HIST_RES / self.W
+        x *= ratio
+        y *= ratio
+        window *= ratio
+        x = int(x)
+        y = int(y)
+        window = int(window)
+        self.heat_map[ZOOM_DEPTH + 1 - z][y:window + y, x: window + x] += 1
+        self.V_map[ZOOM_DEPTH + 1 - z][y:window + y, x: window + x] = V
 
     def follow_policy(self, probs, V):
         A = np.random.choice(self.action_space, p=probs)
@@ -281,39 +301,24 @@ class Environment:
         self.current_node.V = V
         return A
 
-    def sub_img_contain_charlie(self, x, y, z):
+    def sub_img_contain_charlie(self, x, y, window):
         """
         This method allow the user to know if the current subgrid contain charlie or not
         :return: true if the sub grid contains charlie.
         """
 
-        window = self.zoom_padding << (z - 1)
-        charlie_w = self.charlie.shape[1] / 2
-        charlie_h = self.charlie.shape[0] / 2
+        return x <= self.charlie_x < x + window and y <= self.charlie_y < y + window
 
-        return ((x * window <= self.charlie_x < x * window + window - charlie_w or
-                 x * window <= self.charlie_x + charlie_w < x * window + window)
-                and
-                (y * window <= self.charlie_y < y * window + window - charlie_h or
-                 y * window <= self.charlie_y + charlie_h < y * window + window))
-
-    def sub_image_contain_roi(self, x, y, z):
-        window = self.zoom_padding << (z - 1)
-        roi_pad = 100
+    def sub_image_contain_roi(self, x, y, window):
         for i in range(self.ROI.shape[1]):
-
-            if ((x * window <= self.ROI[1][i] < x * window + window or
-                 x * window <= self.ROI[1][i] + roi_pad < x * window + window)
-                    and
-                    (y * window <= self.ROI[0][i] < y * window + window or
-                     y * window <= self.ROI[0][i] + roi_pad < y * window + window)):
+            if x <= self.ROI[1][i] <= x * window and y <= self.ROI[0][i] <= y + window:
                 return True
 
         return False
 
     def take_action(self, action):
 
-        reward = -1.
+        reward = 0.
         self.nb_actions_taken += 1
         is_terminal = False
 
@@ -327,7 +332,7 @@ class Environment:
         if self.current_node.nb_childs < 4:
             self.pq.append(self.current_node, self.current_node.V)
 
-        if not self.current_node.z <= self.min_zoom:
+        if self.current_node.z < ZOOM_DEPTH:
             self.pq.append(child, self.current_node.V)
         else:
             self.nb_max_zoom += 1
@@ -340,19 +345,21 @@ class Environment:
         z = child.z
 
         # Different Checks
-        if self.sub_image_contain_roi(x, y, z):
+        if self.sub_image_contain_roi(x, y, child.img.shape[0]):
             self.nb_good_choice += 1
         else:
             self.nb_bad_choice += 1
 
-        if z < self.min_zoom and self.sub_img_contain_charlie(x, y, z):
+        if z > ZOOM_DEPTH and self.sub_img_contain_charlie(x, y, child.img.shape[0]):
             reward = 100.
             is_terminal = True
+        elif z > ZOOM_DEPTH:
+            reward = -1.
 
-        self.history.append((x, y, z))
+        self.history.append((x, y, child.img.shape[0]))
 
         if self.evaluation_mode:
-            self.record(x, y, z, self.current_node.V)
+            self.record(x, y, z, child.img.shape[0], self.current_node.V)
 
         if not self.pq.isEmpty():
             self.current_node = self.pq.pop()
@@ -368,18 +375,19 @@ class Environment:
         :param name: the name of the gif file
         """
         frames = []
-        for hist in self.history:
-            x, y, z = hist
-            mm = self.hist_img.copy()
+        ratio = HIST_RES / self.W
+        hist_img = cv2.resize(self.full_img, (255, 255))
+        for step in self.history:
+            hist_frame = hist_img.copy()
+            x, y, window = step
+            x *= ratio
+            y *= ratio
+            window *= ratio
+            x = int(x)
+            y = int(y)
+            window = int(window)
 
-            color = [0, 255, 0]
+            hist_frame[y:window + y, x: window + x] = [255, 0, 0]
+            frames.append(hist_frame)
 
-            window = (self.zoom_padding ** z)
-            mm[int(window * y * self.ratio):
-               int((window + window * y) * self.ratio),
-            int(window * x * self.ratio):
-            int((window + window * x) * self.ratio)] = color
-
-            frames.append(mm)
-
-        imageio.mimsave(name, frames, duration=0.5)
+        imageio.mimsave(name, frames, duration=0.2)
