@@ -11,9 +11,9 @@ import numpy as np
 import gc
 from matplotlib import pyplot as plt
 
-MODEL_RES = 64
+MODEL_RES = 100
 HIST_RES = 255
-ZOOM_DEPTH = 3
+ZOOM_DEPTH = 4
 
 
 class PriorityQueue(object):
@@ -144,8 +144,8 @@ class Environment:
         this method place change the charlie's position on the map.
         """
         while True:
-            x = random.randint(0, self.W - self.charlie.shape[1] - 100)
-            y = random.randint(0, self.H - self.charlie.shape[0] - 100)
+            x = random.randint(0, self.W - self.charlie.shape[1])
+            y = random.randint(0, self.H - self.charlie.shape[0])
             if self.mask[y][x][0] == 0:
                 self.charlie_x = x
                 self.charlie_y = y
@@ -195,7 +195,6 @@ class Environment:
             self.full_img = self.base_img.copy()
             self.place_charlie()
 
-
         self.current_node = Tree(self.full_img, (0, 0, 0), -1, self.nb_actions_taken)
         S = self.current_node.get_state()
 
@@ -226,11 +225,13 @@ class Environment:
         if max_ % 2:
             max_ += 1
 
-        self.full_img = cv2.copyMakeBorder(self.base_img, 0, max_ - self.H, 0,
+        self.base_img = cv2.copyMakeBorder(self.base_img, 0, max_ - self.H, 0,
                                            max_ - self.W, cv2.BORDER_CONSTANT, None, value=0)
+        self.full_img = self.base_img.copy()
 
-        self.mask = cv2.copyMakeBorder(self.base_mask, 0, max_ - self.H, 0, max_ - self.W, cv2.BORDER_CONSTANT,
+        self.base_mask = cv2.copyMakeBorder(self.base_mask, 0, max_ - self.H, 0, max_ - self.W, cv2.BORDER_CONSTANT,
                                             None, value=[255, 255, 255])
+        self.mask = self.base_mask.copy()
         self.W = max_
         self.H = max_
         self.ratio = HIST_RES / self.H
@@ -306,12 +307,15 @@ class Environment:
         This method allow the user to know if the current subgrid contain charlie or not
         :return: true if the sub grid contains charlie.
         """
-
-        return x <= self.charlie_x < x + window and y <= self.charlie_y < y + window
+        return ((x <= self.charlie_x < x + window) or (x <= self.charlie_x + self.charlie.shape[1] < x + window)) \
+            and \
+            ((y <= self.charlie_y < y + window) or (y <= self.charlie_y + self.charlie.shape[0] < y + window))
 
     def sub_image_contain_roi(self, x, y, window):
         for i in range(self.ROI.shape[1]):
-            if x <= self.ROI[1][i] <= x * window and y <= self.ROI[0][i] <= y + window:
+            if (x <= self.ROI[1][i] <= x * window or x <= self.ROI[1][i] <= x + window)\
+                    and \
+                    (y <= self.ROI[0][i] <= y + window or y <= self.ROI[0][i] <= y + window):
                 return True
 
         return False

@@ -15,7 +15,7 @@ from tqdm import tqdm
 
 
 class PolicyNet(nn.Module):
-    def __init__(self, img_res=64, n_hidden_nodes=64, n_kernels=32):
+    def __init__(self, img_res=100, n_hidden_nodes=64, n_kernels=32):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -37,12 +37,13 @@ class PolicyNet(nn.Module):
             torch.nn.Conv3d(in_channels=n_kernels >> 2, out_channels=n_kernels >> 1, kernel_size=(1, 5, 5)),
             torch.nn.Dropout(0.1),
             torch.nn.ReLU(),
+            torch.nn.MaxPool3d((1, 2, 2)),
             torch.nn.Conv3d(in_channels=n_kernels >> 1, out_channels=n_kernels, kernel_size=(1, 3, 3)),
             torch.nn.Flatten(),
         )
 
         self.middle = torch.nn.Sequential(
-            torch.nn.Linear(n_kernels * 36, n_hidden_nodes),
+            torch.nn.Linear(img_res * n_kernels, n_hidden_nodes),
             torch.nn.ReLU(),
             torch.nn.Linear(n_hidden_nodes, n_hidden_nodes >> 2),
             torch.nn.ReLU(),
@@ -91,10 +92,10 @@ class PolicyNet(nn.Module):
 
 class PolicyGradient:
 
-    def __init__(self, environment, learning_rate=0.001,
-                 episodes=100, val_episode=100, gamma=0.3,
-                 entropy_coef=0.01, beta_coef=0.01,
-                 lr_gamma=0.5, batch_size=64, pa_dataset_size=1000, pa_batch_size=200):
+    def __init__(self, environment, learning_rate=0.0005,
+                 episodes=100, val_episode=100, gamma=0.6,
+                 entropy_coef=0.01, beta_coef=0.05,
+                 lr_gamma=0.5, batch_size=64, pa_dataset_size=1000, pa_batch_size=5):
 
         self.gamma = gamma
         self.environment = environment
@@ -120,7 +121,7 @@ class PolicyGradient:
 
         entropy_loss = - self.entropy_coef * (action_probs * log_probs).sum(1).mean()
         value_loss = self.beta_coef * torch.nn.functional.mse_loss(values.squeeze(), rewards)
-        policy_loss = - (advantages.unsqueeze(1) * selected_log_probs).mean()
+        policy_loss = - (advantages * selected_log_probs.squeeze()).mean()
         loss = policy_loss + entropy_loss + value_loss
         loss.backward()
 
