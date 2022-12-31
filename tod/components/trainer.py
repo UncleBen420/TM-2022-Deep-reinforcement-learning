@@ -50,7 +50,7 @@ class Trainer:
         vs = []
         td_errors = []
         nb_action = []
-        nb_conv_action = []
+        class_losses = []
         nb_min_zoom_action = []
 
         # --------------------------------------------------------------------------------------------------------------
@@ -69,16 +69,24 @@ class Trainer:
                 first_state = self.env.reload_env(img, bb)
                 loss, sum_reward, sum_v, mean_tde = self.agent.fit_one_episode(first_state)
 
-                rewards.append(sum_reward)
-                losses.append(loss)
                 st = self.env.nb_actions_taken
+                rewards.append(sum_reward / st)
+                losses.append(loss)
                 vs.append(sum_v / st)
                 td_errors.append(mean_tde)
                 nb_action.append(st)
 
-                episode.set_postfix(rewards=sum_reward, loss=loss, nb_action=st, V=sum_v / st, tde=mean_tde)
+                episode.set_postfix(rewards=sum_reward / st, loss=loss, nb_action=st, V=sum_v, tde=mean_tde)
 
-                if i > 450:
+                if (i + 1) % 10 == 0:
+                    self.agent.X_good, self.agent.Y_good = self.agent.trim_ds(self.agent.X_good, self.agent.Y_good)
+                    self.agent.X_bad, self.agent.Y_bad = self.agent.trim_ds(self.agent.X_bad, self.agent.Y_bad)
+
+                    print("train cat")
+                    class_loss = self.agent.train_classification()
+                    class_losses.append(class_loss)
+
+                if i > 950:
                     plt.imshow(self.env.get_heat_map())
                     plt.show()
 
@@ -90,7 +98,7 @@ class Trainer:
         plt.show()
         plt.plot(losses)
         plt.show()
-        plt.plot(td_errors)
+        plt.plot(class_losses)
         plt.show()
 
     def evaluate(self, eval_path, result_path='.', plot_metric=False):

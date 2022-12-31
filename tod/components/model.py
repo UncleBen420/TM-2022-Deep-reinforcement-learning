@@ -34,7 +34,7 @@ class PolicyNet(nn.Module):
         )
 
         self.IoU_estimator = torch.nn.Sequential(
-            torch.nn.Linear(n_hidden_nodes >> 3, 1)
+            torch.nn.Linear(4 n_hidden_nodes >> 3, 1)
         )
 
         self.backbone.to(self.device)

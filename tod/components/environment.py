@@ -9,6 +9,7 @@ import cv2
 import imageio
 import numpy as np
 from PIL import Image
+from sklearn.metrics.pairwise import euclidean_distances
 
 import gc
 from matplotlib import pyplot as plt
@@ -89,6 +90,7 @@ class Environment:
         self.action_space = 10
         self.cv_cuda = check_cuda()
         self.transform = Transform(-50, 50)
+        self.difficulty = 0.
 
     def reload_env(self, img, bb):
         """
@@ -121,7 +123,7 @@ class Environment:
         self.base_img = self.full_img.copy()
 
     def get_state(self):
-        return np.squeeze(self.full_img) / 255.
+        return np.squeeze(cv2.resize(self.full_img, (64, 64))) / 255.
 
     def prepare_coordinates(self, bb):
         bb_file = open(bb, 'r')
@@ -131,6 +133,7 @@ class Environment:
                 values = line.split()
                 self.objects_coordinates.append((float(values[1]), float(values[2]),
                                                  float(values[3]), float(values[4])))
+
 
     # https://gist.github.com/meyerjo/dd3533edc97c81258898f60d8978eddc
     def intersection_over_union(self, boxA, boxB):
@@ -155,7 +158,15 @@ class Environment:
         # return the intersection over union value
         return iou
 
-    def non_max_suppression(self, boxes, conf_threshold=0.2, iou_threshold=0.4):
+    def euclidian_dist(self, coord_a, coord_b):
+        distance = euclidean_distances([coord_a], [coord_b])[0][0]
+        x_r = abs(coord_a[0] - coord_b[0])
+        y_r = abs(coord_a[1] - coord_b[1])
+        x_r = 1 / x_r
+        y_r = 1 / y_r
+        return 1 / distance, (x_r, y_r)
+
+    def non_max_suppression(self, boxes, conf_threshold=0.3, iou_threshold=0.3):
         """
         The function performs nms on the list of boxes:
         boxes: [box1, box2, box3...]
@@ -193,9 +204,34 @@ class Environment:
         h = TASK_MODEL_RES - y if y + h > TASK_MODEL_RES else h
         return x, y, w, h
 
+    def difficulty_up(self):
+        self.difficulty += 0.1
+
+    def bb_to_x(self, img, bboxes):
+        x, y, w, h = bboxes
+        x = int(x)
+        y = int(y)
+        w = int(w)
+        h = int(h)
+
+        cropped_img = img[y:y + h, x:x + w]
+        H, W, C = cropped_img.shape
+
+        max_ = max(W, H)
+
+        if H + W == 0.:
+            cropped_img = np.zeros((64, 64, 3))
+        pad_h = int((max_ - H) / 2)
+        pad_w = int((max_ - W) / 2)
+        cropped_img = cv2.copyMakeBorder(cropped_img, pad_h, pad_h, pad_w, pad_w, cv2.BORDER_CONSTANT, None, value=0)
+
+        cropped_img = cv2.resize(cropped_img, (32, 32))
+
+        return cropped_img / 255.
+
     def take_action(self, actions):
 
-        reward = -1.
+        reward = 0.
         self.nb_actions_taken += 1
         is_terminal = False
 
@@ -211,27 +247,33 @@ class Environment:
 
         x, y, w, h = agent_bbox
         self.history.append((x, y, w, h, 1, reward))
-
         S_prime = self.get_state()
         state_change = False
-        if reward >= 0.3:
-            reward *= 10.
-            reward = reward * reward
+
+        X = self.bb_to_x(self.full_img, agent_bbox)
+
+        if reward >= 0.4:
             x, y, w, h = self.objects_coordinates.pop(max_i)
             p1 = (int(x), int(y))
             p2 = (int(x + w), int(y + h))
             self.full_img = cv2.rectangle(self.full_img, p1, p2, [0., 0., 0.], -1)
             state_change = True
+            Y = 1.
         else:
-            reward = -1.
+            reward = 0.
+            Y = 0.
 
-        if self.nb_actions_taken >= 30:
+        if self.nb_actions_taken >= 100:
             is_terminal = True
 
         if len(self.objects_coordinates) <= 0:
             is_terminal = True
 
-        return S_prime, reward, is_terminal, state_change
+        return S_prime, reward, is_terminal, state_change, (agent_bbox, X, Y)
+
+    def add_to_history(self, bbox, iou):
+        x, y, w, h = bbox
+        self.history.append((x, y, w, h, 1, iou))
 
     def get_heat_map(self):
 
@@ -240,9 +282,9 @@ class Environment:
 
         for bb in bboxes:
             x, y, w, h, _, _ = bb
-            x2 = x + w
-            y2 = y + h
-            history_img = cv2.rectangle(history_img, (int(x), int(y)), (int(x2), int(y2)), [255., 0., 0.], 2)
+            p1 = (int(x), int(y))
+            p2 = (int(x + w), int(y + h))
+            history_img = cv2.rectangle(history_img, p1, p2, [255., 0., 0.], 2)
 
         return history_img
 
