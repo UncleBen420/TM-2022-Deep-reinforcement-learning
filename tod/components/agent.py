@@ -7,41 +7,49 @@ from torch.optim.lr_scheduler import StepLR
 # https://arxiv.org/pdf/1711.08946.pdf
 
 class CategoricalNet(nn.Module):
-    def __init__(self, classes=10):
+    def __init__(self, classes=5):
         super(CategoricalNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.classes = classes
 
         self.backbone = torch.nn.Sequential(
-            torch.nn.Conv2d(3, 32, kernel_size=6, stride=3),
+            torch.nn.Conv2d(3, 16, kernel_size=7, stride=3),
             torch.nn.Dropout(0.2),
             torch.nn.ReLU(),
-            torch.nn.Conv2d(32, 64, kernel_size=4, stride=2),
+            torch.nn.Conv2d(16, 32, kernel_size=5, stride=2),
             torch.nn.ReLU(),
-            torch.nn.BatchNorm2d(64),
-            torch.nn.Conv2d(64, 64, kernel_size=3),
+            torch.nn.BatchNorm2d(32),
+            torch.nn.Conv2d(32, 64, kernel_size=3, stride=2),
+            torch.nn.Dropout(0.2),
+            torch.nn.ReLU(),
+            torch.nn.Conv2d(64, 128, kernel_size=3),
             torch.nn.Dropout(0.2),
             torch.nn.ReLU(),
             torch.nn.Flatten(),
         )
 
         self.iou_head = torch.nn.Sequential(
-            torch.nn.Linear(64, 32),
+            torch.nn.Linear(128, 64),
             torch.nn.ReLU(),
-            torch.nn.Linear(32, 8),
+            torch.nn.Linear(64, 20),
             torch.nn.ReLU(),
-            torch.nn.Linear(8, 1),
+            torch.nn.Linear(20, 1),
             torch.nn.Sigmoid()
         )
 
         self.cat_head = torch.nn.Sequential(
-            torch.nn.Linear(64, classes),
+            torch.nn.Linear(128, 64),
+            torch.nn.ReLU(),
+            torch.nn.Linear(64, 20),
+            torch.nn.ReLU(),
+            torch.nn.Linear(20, classes),
             torch.nn.Softmax(dim=1)
         )
 
     def forward(self, X):
         x = self.backbone(X)
-        return self.iou_head(x)
+        return self.iou_head(x), self.cat_head(x)
 
     def prepare_data(self, state):
         return state.permute(0, 3, 1, 2)
@@ -53,27 +61,45 @@ class PolicyNet(nn.Module):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         self.action_space = np.arange(10)
+        self.action_space_wh = np.arange(5)
         self.nb_actions = 10
+        self.nb_actions_wh = 5
 
         self.img_res = img_res
 
+        #self.backbone = torch.nn.Sequential(
+        #    torch.nn.Conv2d(3, 32, kernel_size=8, stride=4),
+        #    torch.nn.ReLU(),
+        #    torch.nn.Dropout(0.2),
+        #    torch.nn.Conv2d(32, 32, kernel_size=6, stride=3),
+        #    torch.nn.ReLU(),
+        #    torch.nn.Conv2d(32, 64, kernel_size=4, stride=2),
+        #    torch.nn.ReLU(),
+        #    torch.nn.Dropout(0.2),
+        #    torch.nn.Flatten(),
+        #)
+
         self.backbone = torch.nn.Sequential(
-            torch.nn.Conv2d(3, 32, kernel_size=8, stride=4),
+            torch.nn.Conv3d(3, 8, kernel_size=(1, 5, 5)),
             torch.nn.ReLU(),
-            torch.nn.Conv2d(32, 64, kernel_size=4, stride=2),
+            torch.nn.Dropout(0.2),
+            torch.nn.Conv3d(8, 10, kernel_size=(1, 4, 4)),
             torch.nn.ReLU(),
-            torch.nn.Conv2d(64, 64, kernel_size=3, stride=2),
+            torch.nn.BatchNorm3d(10),
+            torch.nn.Conv3d(10, 10, kernel_size=(1, 3, 3)),
             torch.nn.ReLU(),
-            torch.nn.BatchNorm2d(64),
+            torch.nn.Dropout(0.2),
             torch.nn.Flatten(),
         )
 
         self.middle = torch.nn.Sequential(
-            torch.nn.Linear(256, 128),
+            torch.nn.Linear(1000, 500),
             torch.nn.ReLU(),
-            torch.nn.Linear(128, 64),
+            torch.nn.Linear(500, 250),
             torch.nn.ReLU(),
-            torch.nn.Linear(64, 32),
+            torch.nn.Linear(250, 100),
+            torch.nn.ReLU(),
+            torch.nn.Linear(100, 32),
             torch.nn.ReLU()
         )
 
@@ -88,12 +114,12 @@ class PolicyNet(nn.Module):
         )
 
         self.headw = torch.nn.Sequential(
-            torch.nn.Linear(32, self.nb_actions),
+            torch.nn.Linear(32, self.nb_actions_wh),
             torch.nn.Softmax(dim=1)
         )
 
         self.headh = torch.nn.Sequential(
-            torch.nn.Linear(32, self.nb_actions),
+            torch.nn.Linear(32, self.nb_actions_wh),
             torch.nn.Softmax(dim=1)
         )
 
@@ -109,10 +135,13 @@ class PolicyNet(nn.Module):
         y = probs[1].detach().cpu().numpy()[0]
         w = probs[2].detach().cpu().numpy()[0]
         h = probs[3].detach().cpu().numpy()[0]
-        return np.random.choice(self.action_space, p=x), \
-            np.random.choice(self.action_space, p=y), \
-            np.random.choice(self.action_space, p=w), \
-            np.random.choice(self.action_space, p=h)
+        ax = np.random.choice(self.action_space, p=x)
+        ay = np.random.choice(self.action_space, p=y)
+        aw = np.random.choice(self.action_space_wh, p=w)
+        ah = np.random.choice(self.action_space_wh, p=h)
+        conf = (x[ax] + y[ay] + w[aw] + h[ah]) / 4
+
+        return (ax, ay, aw, ah), conf
 
     def init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -120,6 +149,12 @@ class PolicyNet(nn.Module):
             m.bias.data.fill_(0.01)
 
     def prepare_data(self, state):
+        img = state.permute(0, 3, 1, 2)
+        patches = img.unfold(1, 3, 3).unfold(2, 10, 10).unfold(3, 10, 10)
+        patches = patches.contiguous().view(1, 100, -1, 10, 10)
+        return patches.permute(0, 2, 1, 3, 4)
+
+    def prepare_data2(self, state):
         return state.permute(0, 3, 1, 2)
 
     def forward(self, state):
@@ -132,10 +167,12 @@ class PolicyGradient:
 
     def __init__(self, environment, learning_rate=0.0001, gamma=0.6,
                  entropy_coef=0.1, beta_coef=0.1,
-                 lr_gamma=0.5, batch_size=64, pa_dataset_size=256, pa_batch_size=30, img_res=64):
+                 lr_gamma=0.8, batch_size=64, pa_dataset_size=256, pa_batch_size=30, img_res=64):
 
         self.gamma = gamma
         self.environment = environment
+        self.environment.agent = self
+
         self.beta_coef = beta_coef
         self.entropy_coef = entropy_coef
         self.min_r = 0
@@ -160,17 +197,42 @@ class PolicyGradient:
         self.X_good = None
         self.Y_bad = None
         self.Y_good = None
+        self.Y_label = None
 
-    def add_to_ds(self, X, Y):
+    def pred_class(self, X):
+        # Data preparation
+        X = torch.from_numpy(X).float()
+        X = X.unsqueeze(0).to(self.catnet.device)
+        X = self.catnet.prepare_data(X)
+
+        # prediction
+        iou, cat_pred = self.catnet(X)
+
+        # prediction to numpy
+        cat_pred = torch.nn.functional.softmax(cat_pred, dim=1)
+        cat_pred = cat_pred.detach().cpu().numpy()[0]
+        cat_pred = np.argmax(cat_pred)
+        return iou.item(), cat_pred
+
+    def add_to_ds(self, X, Y, label):
+
+        X = torch.from_numpy(X).float()
+        X = X.unsqueeze(0).to(self.catnet.device)
+        X = self.catnet.prepare_data(X)
 
         if Y == 1.:
             Y = torch.FloatTensor([Y]).to(self.catnet.device)
+            label = torch.LongTensor([label]).to(self.catnet.device)
+            #label = torch.nn.functional.one_hot(label, self.catnet.classes)
+
             if self.X_good is None:
                 self.X_good = X
                 self.Y_good = Y
+                self.Y_label = label
             else:
                 self.X_good = torch.cat((self.X_good, X), 0)
                 self.Y_good = torch.cat((self.Y_good, Y), 0)
+                self.Y_label = torch.cat((self.Y_label, label), 0)
         else:
             Y = torch.FloatTensor([Y]).to(self.catnet.device)
             if self.X_bad is None:
@@ -180,30 +242,44 @@ class PolicyGradient:
                 self.X_bad = torch.cat((self.X_bad, X), 0)
                 self.Y_bad = torch.cat((self.Y_bad, Y), 0)
 
-    def trim_ds(self, X, Y):
-        if len(X) > self.pa_dataset_size:
+    def trim_ds(self, X, Y, label=None):
+        if X is not None and len(X) > self.pa_dataset_size:
             # shuffling the batch
             shuffle_index = torch.randperm(len(X))
             X = X[shuffle_index]
             Y = Y[shuffle_index]
+            if label is not None:
+                label = label[shuffle_index]
+
 
             # dataset clipping
             max_size = min(self.pa_dataset_size, len(self.X_good), len(self.X_bad))
             surplus = len(X) - max_size
             _, X = torch.split(X, [surplus, max_size])
             _, Y = torch.split(Y, [surplus, max_size])
+            if label is not None:
+                _, label = torch.split(label, [surplus, max_size])
 
-        return X, Y
+        return X, Y, label
 
     def train_classification(self):
         self.cat_optimizer.zero_grad()
         X = torch.cat((self.X_good, self.X_bad), dim=0)
         Y = torch.cat((self.Y_good, self.Y_bad), dim=0)
-        Y_ = self.catnet(X)
-        loss = torch.nn.functional.cross_entropy(Y, Y_.squeeze())
-        loss.backward()
+        pred, cat_pred = self.catnet(X)
+        loss = torch.nn.functional.binary_cross_entropy(pred.squeeze(), Y)
+        print(loss)
+        loss.backward(retain_graph=True)
+
+        cat_pred = cat_pred[Y == 1]
+
+        cat_loss = torch.nn.functional.cross_entropy(cat_pred, self.Y_label)
+
+        cat_loss.backward()
+        #torch.nn.utils.clip_grad_norm_(self.catnet.parameters(), 10)
         self.cat_optimizer.step()
-        return loss.item()
+
+        return loss.item() + cat_loss.item()
 
     def save(self, file):
         torch.save(self.policy.state_dict(), file)
@@ -294,18 +370,9 @@ class PolicyGradient:
                 with torch.no_grad():
                     action_probs = self.policy(S)
 
-            As = self.policy.follow_policy(action_probs)
+            As, conf = self.policy.follow_policy(action_probs)
 
-            S_prime, R, is_terminal, state_change, cat = self.environment.take_action(As)
-            bbox, X, Y = cat
-            X = torch.from_numpy(X).float()
-            X = X.unsqueeze(0).to(self.catnet.device)
-            X = self.catnet.prepare_data(X)
-            self.add_to_ds(X, Y)
-
-            iou = self.catnet(X).item()
-           # print(iou)
-            self.environment.add_to_history(bbox, iou)
+            S_prime, R, is_terminal, state_change = self.environment.take_action(As, conf)
 
             sum_v += 0
 
@@ -332,10 +399,10 @@ class PolicyGradient:
 
         # TD error is scaled to ensure no exploding gradient
         # also it stabilise the learning : https://arxiv.org/pdf/2105.05347.pdf
-        self.min_r = torch.min(TDE_batch)
-        self.max_r = torch.max(TDE_batch)
-        if len(TDE_batch) > 1:
-            TDE_batch = self.minmax_scaling(TDE_batch)
+        #self.min_r = torch.min(TDE_batch)
+        #self.max_r = torch.max(TDE_batch)
+        #if len(TDE_batch) > 1:
+        #    TDE_batch = self.minmax_scaling(TDE_batch)
 
         # if len(TDE_batch) > 1:
         #    mean, std = torch.mean(TDE_batch), torch.std(TDE_batch)

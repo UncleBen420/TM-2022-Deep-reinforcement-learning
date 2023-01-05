@@ -91,6 +91,7 @@ class Environment:
         self.cv_cuda = check_cuda()
         self.transform = Transform(-50, 50)
         self.difficulty = 0.
+        self.agent = None
 
     def reload_env(self, img, bb):
         """
@@ -122,8 +123,30 @@ class Environment:
                                            max_ - W, cv2.BORDER_CONSTANT, None, value=0)
         self.base_img = self.full_img.copy()
 
+    def get_state2(self):
+        return np.squeeze(cv2.resize(self.full_img, (100, 100))) / 255.
+        #return np.squeeze(self.full_img) / 255.
+
     def get_state(self):
-        return np.squeeze(cv2.resize(self.full_img, (64, 64))) / 255.
+        if len(self.objects_coordinates) > 0:
+            nb_masked = random.randint(0, len(self.objects_coordinates) - 1)
+        else:
+            nb_masked = 0
+
+        masked_bb = random.choices(self.objects_coordinates, k=nb_masked)
+        self.bboxes = list(set(self.objects_coordinates) - set(masked_bb))
+
+        temp = cv2.resize(self.full_img, (100, 100))
+        for bb in masked_bb:
+            x, y, w, h, label = bb
+            p1 = (int(x/ 2), int(y/ 2) )
+            p2 = (int((x + w)/ 2), int((y + h)/ 2))
+            temp = cv2.rectangle(temp, p1, p2, [0., 0., 0.], -1)
+
+
+        return temp / 255
+        #return np.squeeze(self.full_img) / 255.
+
 
     def prepare_coordinates(self, bb):
         bb_file = open(bb, 'r')
@@ -131,8 +154,8 @@ class Environment:
         for line in lines:
             if line is not None:
                 values = line.split()
-                self.objects_coordinates.append((float(values[1]), float(values[2]),
-                                                 float(values[3]), float(values[4])))
+                self.objects_coordinates.append(((float(values[1]), float(values[2]),
+                                                 float(values[3]), float(values[4]), int(float(values[0])))))
 
 
     # https://gist.github.com/meyerjo/dd3533edc97c81258898f60d8978eddc
@@ -158,15 +181,7 @@ class Environment:
         # return the intersection over union value
         return iou
 
-    def euclidian_dist(self, coord_a, coord_b):
-        distance = euclidean_distances([coord_a], [coord_b])[0][0]
-        x_r = abs(coord_a[0] - coord_b[0])
-        y_r = abs(coord_a[1] - coord_b[1])
-        x_r = 1 / x_r
-        y_r = 1 / y_r
-        return 1 / distance, (x_r, y_r)
-
-    def non_max_suppression(self, boxes, conf_threshold=0.3, iou_threshold=0.3):
+    def non_max_suppression(self, boxes, conf_threshold=0.1, iou_threshold=0.1):
         """
         The function performs nms on the list of boxes:
         boxes: [box1, box2, box3...]
@@ -186,7 +201,7 @@ class Environment:
             current_box = bbox_list_thresholded.pop(0)  # Remove the box with highest confidence
             bbox_list_new.append(current_box)  # Append it to the list of final boxes
             for box in bbox_list_thresholded:
-                if current_box[4] == box[4]:  # Check if both boxes belong to the same class
+                if True:  # Check if both boxes belong to the same class
                     iou = self.intersection_over_union(current_box[:4], box[:4])  # Calculate the IOU of the two boxes
                     if iou > iou_threshold:  # Check if the iou is greater than the threshold defined
                         bbox_list_thresholded.remove(box)  # If there is significant overlap, then remove the box
@@ -197,17 +212,17 @@ class Environment:
         x = pad * actions[0]
         y = pad * actions[1]
 
-        w = pad * actions[2]
+        w = pad * (actions[2] + 1)
         w = TASK_MODEL_RES - x if x + w > TASK_MODEL_RES else w
 
-        h = pad * actions[3]
+        h = pad * (actions[3] + 1)
         h = TASK_MODEL_RES - y if y + h > TASK_MODEL_RES else h
         return x, y, w, h
 
     def difficulty_up(self):
         self.difficulty += 0.1
 
-    def bb_to_x(self, img, bboxes):
+    def bb_to_x2(self, img, bboxes):
         x, y, w, h = bboxes
         x = int(x)
         y = int(y)
@@ -229,7 +244,20 @@ class Environment:
 
         return cropped_img / 255.
 
-    def take_action(self, actions):
+    def bb_to_x(self, img, bboxes):
+        x, y, w, h = bboxes
+        x = int(x)
+        y = int(y)
+        w = int(w)
+        h = int(h)
+
+        cropped_img = img[y:y + h, x:x + w]
+
+        cropped_img = cv2.resize(cropped_img, (64, 64))
+
+        return cropped_img / 255.
+
+    def take_action(self, actions, conf):
 
         reward = 0.
         self.nb_actions_taken += 1
@@ -237,9 +265,8 @@ class Environment:
 
         agent_bbox = self.action_to_box(actions)
         max_i = 0
-        for i, bbox in enumerate(self.objects_coordinates):
+        for i, bbox in enumerate(self.bboxes):
             iou = self.intersection_over_union(agent_bbox, bbox)
-            # iou = -1. if iou < 0.5 else iou
 
             if iou > reward:
                 reward = iou
@@ -247,33 +274,43 @@ class Environment:
 
         x, y, w, h = agent_bbox
         self.history.append((x, y, w, h, 1, reward))
-        S_prime = self.get_state()
-        state_change = False
 
         X = self.bb_to_x(self.full_img, agent_bbox)
 
         if reward >= 0.4:
-            x, y, w, h = self.objects_coordinates.pop(max_i)
+            x, y, w, h, label = self.objects_coordinates.pop(max_i)
+
             p1 = (int(x), int(y))
             p2 = (int(x + w), int(y + h))
             self.full_img = cv2.rectangle(self.full_img, p1, p2, [0., 0., 0.], -1)
             state_change = True
             Y = 1.
-        else:
-            reward = 0.
+            Y_classification = label
+            self.agent.add_to_ds(X, Y, label)
+        elif reward < 0.1:
+            #reward = 0.
             Y = 0.
+            self.agent.add_to_ds(X, Y, 0)
 
-        if self.nb_actions_taken >= 100:
+        iou, cat_pred = self.agent.pred_class(X)
+
+        self.add_to_history(agent_bbox, reward, cat_pred)
+        #reward = iou
+
+        S_prime = self.get_state()
+        state_change = True
+
+        if self.nb_actions_taken >= 50:
             is_terminal = True
 
         if len(self.objects_coordinates) <= 0:
             is_terminal = True
 
-        return S_prime, reward, is_terminal, state_change, (agent_bbox, X, Y)
+        return S_prime, reward, is_terminal, state_change
 
-    def add_to_history(self, bbox, iou):
+    def add_to_history(self, bbox, iou, label):
         x, y, w, h = bbox
-        self.history.append((x, y, w, h, 1, iou))
+        self.history.append((x, y, w, h, label, iou))
 
     def get_heat_map(self):
 
@@ -281,10 +318,15 @@ class Environment:
         history_img = self.base_img.copy()
 
         for bb in bboxes:
-            x, y, w, h, _, _ = bb
+            x, y, w, h, label, conf = bb
+            print(label)
             p1 = (int(x), int(y))
             p2 = (int(x + w), int(y + h))
             history_img = cv2.rectangle(history_img, p1, p2, [255., 0., 0.], 2)
+            history_img = cv2.putText(history_img, str(label) + ' ' + str(conf), (int(x + w / 2), int(y + 10)),
+                                cv2.FONT_HERSHEY_SIMPLEX,
+                                0.3,
+                                [255, 0, 0], 1, cv2.LINE_AA)
 
         return history_img
 

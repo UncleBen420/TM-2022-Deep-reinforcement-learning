@@ -77,16 +77,18 @@ class Trainer:
                 nb_action.append(st)
 
                 episode.set_postfix(rewards=sum_reward / st, loss=loss, nb_action=st, V=sum_v, tde=mean_tde)
+                if (i + 1) % 5 == 0:
+                    self.agent.X_good, self.agent.Y_good, self.agent.Y_label = self.agent.trim_ds(self.agent.X_good,
+                                                                                                  self.agent.Y_good,
+                                                                                                  self.agent.Y_label)
+                    self.agent.X_bad, self.agent.Y_bad, _ = self.agent.trim_ds(self.agent.X_bad, self.agent.Y_bad)
 
-                if (i + 1) % 10 == 0:
-                    self.agent.X_good, self.agent.Y_good = self.agent.trim_ds(self.agent.X_good, self.agent.Y_good)
-                    self.agent.X_bad, self.agent.Y_bad = self.agent.trim_ds(self.agent.X_bad, self.agent.Y_bad)
-
+                if i > 20 and (i + 1) % 20 == 0:
                     print("train cat")
                     class_loss = self.agent.train_classification()
                     class_losses.append(class_loss)
 
-                if i > 950:
+                if i > 1980:
                     plt.imshow(self.env.get_heat_map())
                     plt.show()
 
