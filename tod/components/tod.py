@@ -3,8 +3,11 @@ import torch
 from torch import nn
 from torch.optim.lr_scheduler import StepLR
 
-
+# https://github.com/schneimo/ddpg-pytorch/blob/master
 # https://arxiv.org/pdf/1711.08946.pdf
+
+# From OpenAI Baselines:
+# https://github.com/openai/baselines/blob/master/baselines/ddpg/noise.py
 
 class CategoricalNet(nn.Module):
     def __init__(self, classes=5):
@@ -54,94 +57,68 @@ class CategoricalNet(nn.Module):
     def prepare_data(self, state):
         return state.permute(0, 3, 1, 2)
 
+
 class PolicyNet(nn.Module):
-    def __init__(self, img_res=200, n_hidden_nodes=256, n_kernels=64):
+    def __init__(self, nb_actions=8, n_kernels=64):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-        self.action_space = np.arange(10)
-        self.action_space_wh = np.arange(5)
-        self.nb_actions = 10
-        self.nb_actions_wh = 5
-
-        self.img_res = img_res
-
-        #self.backbone = torch.nn.Sequential(
-        #    torch.nn.Conv2d(3, 32, kernel_size=8, stride=4),
-        #    torch.nn.ReLU(),
-        #    torch.nn.Dropout(0.2),
-        #    torch.nn.Conv2d(32, 32, kernel_size=6, stride=3),
-        #    torch.nn.ReLU(),
-        #    torch.nn.Conv2d(32, 64, kernel_size=4, stride=2),
-        #    torch.nn.ReLU(),
-        #    torch.nn.Dropout(0.2),
-        #    torch.nn.Flatten(),
-        #)
+        self.action_space = np.arange(nb_actions)
+        self.nb_actions = nb_actions
 
         self.backbone = torch.nn.Sequential(
-            torch.nn.Conv3d(3, 8, kernel_size=(1, 5, 5)),
+            torch.nn.Conv2d(3, 16, kernel_size=7, stride=3),
             torch.nn.ReLU(),
-            torch.nn.Dropout(0.2),
-            torch.nn.Conv3d(8, 10, kernel_size=(1, 4, 4)),
+            torch.nn.BatchNorm2d(16),
+            #torch.nn.Dropout(0.1),
+            torch.nn.Conv2d(16, 32, kernel_size=5, stride=2),
             torch.nn.ReLU(),
-            torch.nn.BatchNorm3d(10),
-            torch.nn.Conv3d(10, 10, kernel_size=(1, 3, 3)),
+            torch.nn.BatchNorm2d(32),
+            torch.nn.Conv2d(32, 64, kernel_size=3, stride=2),
             torch.nn.ReLU(),
-            torch.nn.Dropout(0.2),
+            #torch.nn.BatchNorm2d(64),
+            torch.nn.Dropout(0.1),
             torch.nn.Flatten(),
         )
 
         self.middle = torch.nn.Sequential(
-            torch.nn.Linear(1000, 500),
-            torch.nn.ReLU(),
-            torch.nn.Linear(500, 250),
+            torch.nn.Linear(576, 250),
             torch.nn.ReLU(),
             torch.nn.Linear(250, 100),
-            torch.nn.ReLU(),
-            torch.nn.Linear(100, 32),
             torch.nn.ReLU()
         )
 
-        self.headx = torch.nn.Sequential(
+        self.policy_head = torch.nn.Sequential(
+            torch.nn.Linear(100, 32),
+            torch.nn.ReLU(),
             torch.nn.Linear(32, self.nb_actions),
             torch.nn.Softmax(dim=1)
         )
 
-        self.heady = torch.nn.Sequential(
-            torch.nn.Linear(32, self.nb_actions),
-            torch.nn.Softmax(dim=1)
-        )
-
-        self.headw = torch.nn.Sequential(
-            torch.nn.Linear(32, self.nb_actions_wh),
-            torch.nn.Softmax(dim=1)
-        )
-
-        self.headh = torch.nn.Sequential(
-            torch.nn.Linear(32, self.nb_actions_wh),
-            torch.nn.Softmax(dim=1)
+        self.v_head = torch.nn.Sequential(
+            torch.nn.Linear(100, 32),
+            torch.nn.ReLU(),
+            torch.nn.Linear(32, 8),
+            torch.nn.ReLU(),
+            torch.nn.Linear(8, 1)
         )
 
         self.backbone.to(self.device)
         self.middle.to(self.device)
-        self.headx.to(self.device)
 
         self.middle.apply(self.init_weights)
-        self.headx.apply(self.init_weights)
+
 
     def follow_policy(self, probs):
-        x = probs[0].detach().cpu().numpy()[0]
-        y = probs[1].detach().cpu().numpy()[0]
-        w = probs[2].detach().cpu().numpy()[0]
-        h = probs[3].detach().cpu().numpy()[0]
-        ax = np.random.choice(self.action_space, p=x)
-        ay = np.random.choice(self.action_space, p=y)
-        aw = np.random.choice(self.action_space_wh, p=w)
-        ah = np.random.choice(self.action_space_wh, p=h)
-        conf = (x[ax] + y[ay] + w[aw] + h[ah]) / 4
+        return np.random.choice(self.action_space, p=probs)
 
-        return (ax, ay, aw, ah), conf
+    def e_greedy(self, probs):
+        p = np.random.random()
+        if p < 0.1:
+            return np.random.choice(self.action_space)
+        else:
+            return np.argmax(probs)
 
     def init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -149,25 +126,20 @@ class PolicyNet(nn.Module):
             m.bias.data.fill_(0.01)
 
     def prepare_data(self, state):
-        img = state.permute(0, 3, 1, 2)
-        patches = img.unfold(1, 3, 3).unfold(2, 10, 10).unfold(3, 10, 10)
-        patches = patches.contiguous().view(1, 100, -1, 10, 10)
-        return patches.permute(0, 2, 1, 3, 4)
-
-    def prepare_data2(self, state):
         return state.permute(0, 3, 1, 2)
 
     def forward(self, state):
         x = self.backbone(state)
         x = self.middle(x)
-        return (self.headx(x), self.heady(x), self.headw(x), self.headh(x))
+        preds = self.policy_head(x)
+        v = self.v_head(x)
+        return preds, v
 
+class TOD:
 
-class PolicyGradient:
-
-    def __init__(self, environment, learning_rate=0.0001, gamma=0.6,
-                 entropy_coef=0.1, beta_coef=0.1,
-                 lr_gamma=0.8, batch_size=64, pa_dataset_size=256, pa_batch_size=30, img_res=64):
+    def __init__(self, environment, learning_rate=0.0001, gamma=0.1,
+                 entropy_coef=0.01, beta_coef=0.01,
+                 lr_gamma=0.8, batch_size=64, pa_dataset_size=1024, pa_batch_size=100, img_res=64):
 
         self.gamma = gamma
         self.environment = environment
@@ -177,14 +149,14 @@ class PolicyGradient:
         self.entropy_coef = entropy_coef
         self.min_r = 0
         self.max_r = 1
-        self.policy = PolicyNet(img_res=img_res)
+        self.policy = PolicyNet()
         self.catnet = CategoricalNet()
-        self.action_space = 4
+
         self.batch_size = batch_size
         self.pa_dataset_size = pa_dataset_size
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=learning_rate)
+
         self.cat_optimizer = torch.optim.Adam(self.catnet.parameters(), lr=0.001)
-        self.scheduler = StepLR(self.optimizer, step_size=100, gamma=lr_gamma)
         self.pa_batch_size = pa_batch_size
 
         # Past Actions Buffer
@@ -294,52 +266,33 @@ class PolicyGradient:
         print("TOTAL PARAMS: {0}".format(sum(p.numel() for p in self.policy.parameters())
                                          + sum(p.numel() for p in self.catnet.parameters())))
 
-    def minmax_scaling(self, x):
-        return (x - self.min_r) / (self.max_r - self.min_r)
-
-    def a2c(self, advantages, rewards, action_probs, log_probs, selected_log_probs, values):
-        # entropy_loss = - self.entropy_coef * (action_probs * log_probs).mean(0).sum(1).mean()
-        # entropy_loss = torch.nan_to_num(entropy_loss)
-        # value_loss = self.beta_coef * torch.nn.functional.mse_loss(values.squeeze(), rewards)
-
-        policy_loss = - (advantages * selected_log_probs.squeeze()).mean()
-
-        # policy_loss = torch.nn.functional.mse_loss(selected_log_probs.squeeze(), advantages.repeat(4, 1).permute(1, 0))
-        policy_loss = torch.nan_to_num(policy_loss)
-        loss = policy_loss  # + entropy_loss #+ value_loss
-
-        loss.backward(retain_graph=True)
-
-        # torch.nn.utils.clip_grad_value_(self.policy.parameters(), 10.)
-
-        return loss.item()
-
     def update_policy(self, batch):
 
         sum_loss = 0.
         counter = 0.
 
-        S, A, G, TD = batch
+        S, A, G, TDE = batch
 
         # Calculate loss
         self.optimizer.zero_grad()
-        action_probs = self.policy(S)
+        action_probs, V = self.policy(S)
 
-        TD = TD.detach()
-        for i, probs in enumerate(action_probs):
-            log_probs = torch.log(probs)
-            log_probs = torch.nan_to_num(log_probs)
+        log_probs = torch.log(action_probs)
+        log_probs = torch.nan_to_num(log_probs)
 
-            selected_log_probs = torch.gather(log_probs, 1, A[:, i].unsqueeze(1))
+        selected_log_probs = torch.gather(log_probs, 1, A.unsqueeze(1))
 
-            sum_loss += self.a2c(TD, G, action_probs, log_probs, selected_log_probs, 0)
-
-            counter += 1
+        #entropy_loss = - self.entropy_coef * (action_probs * log_probs).sum(1).mean()
+        value_loss = torch.nn.functional.mse_loss(V.squeeze(), G.detach().squeeze())
+        #value_loss = self.beta_coef * torch.nn.functional.mse_loss(V.squeeze(), G)
+        value_loss.backward(retain_graph=True)
+        policy_loss = - (G.unsqueeze(1) * selected_log_probs).mean()
+        loss = policy_loss #+ entropy_loss# + value_loss
+        loss.backward()
 
         self.optimizer.step()
-        self.scheduler.step()
 
-        return sum_loss / counter, 0.
+        return loss.item(), 0
 
     def fit_one_episode(self, S):
 
@@ -349,7 +302,7 @@ class PolicyGradient:
         S_batch = []
         R_batch = []
         A_batch = []
-        TDE_batch = []
+        V_batch = []
 
         # ------------------------------------------------------------------------------------------------------
         # EPISODE REALISATION
@@ -361,54 +314,48 @@ class PolicyGradient:
         counter += 1
         # State preprocess
 
-        state_change = True
         while True:
-            if state_change:
-                S = torch.from_numpy(S).float()
-                S = S.unsqueeze(0).to(self.policy.device)
-                S = self.policy.prepare_data(S)
-                with torch.no_grad():
-                    action_probs = self.policy(S)
+            S = torch.from_numpy(S).float()
+            S = S.unsqueeze(0).to(self.policy.device)
+            S = self.policy.prepare_data(S)
+            with torch.no_grad():
+                action_probs, v = self.policy(S)
+                action_probs = action_probs.detach().cpu().numpy()[0]
 
-            As, conf = self.policy.follow_policy(action_probs)
+                A = self.policy.follow_policy(action_probs)
 
-            S_prime, R, is_terminal, state_change = self.environment.take_action(As, conf)
+            S_prime, R, is_terminal = self.environment.take_action_tod(A, v.item())
 
-            sum_v += 0
+            sum_v += v.item()
 
             S_batch.append(S)
-            A_batch.append(As)
-            TDE_batch.append(R)
+            A_batch.append(A)
+            V_batch.append(v.item())
             R_batch.append(R)
             sum_reward += R
 
-            if state_change:
-                S = S_prime
+            S = S_prime
 
             if is_terminal:
                 break
+        TDE_batch = R_batch.copy()
+        for i in reversed(range(1, len(R_batch))):
+            R_batch[i - 1] += self.gamma * R_batch[i]
+            TDE_batch[i - 1] += self.gamma * R_batch[i]
+            TDE_batch[i] - V_batch[i]
 
         # ------------------------------------------------------------------------------------------------------
         # BATCH PREPARATION
         # ------------------------------------------------------------------------------------------------------
         S_batch = torch.concat(S_batch).to(self.policy.device)
         A_batch = torch.LongTensor(A_batch).to(self.policy.device)
-
+        TDE_batch = torch.FloatTensor(TDE_batch).to(self.policy.device)
         G_batch = torch.FloatTensor(R_batch).to(self.policy.device)
-        TDE_batch = torch.FloatTensor(R_batch).to(self.policy.device)
-
-        # TD error is scaled to ensure no exploding gradient
-        # also it stabilise the learning : https://arxiv.org/pdf/2105.05347.pdf
-        #self.min_r = torch.min(TDE_batch)
-        #self.max_r = torch.max(TDE_batch)
-        #if len(TDE_batch) > 1:
-        #    TDE_batch = self.minmax_scaling(TDE_batch)
-
-        # if len(TDE_batch) > 1:
-        #    mean, std = torch.mean(TDE_batch), torch.std(TDE_batch)
-        #    TDE_batch = (TDE_batch - mean) / std
-
+        #tde_min = torch.min(TDE_batch)
+        #tde_max = torch.max(TDE_batch)
+        #TDE_batch = (TDE_batch - tde_min) / (tde_max - tde_min)
         TDE_batch = torch.nan_to_num(TDE_batch)
+
 
         # ------------------------------------------------------------------------------------------------------
         # PAST ACTION DATASET PREPARATION
@@ -424,7 +371,7 @@ class PolicyGradient:
             batch = (S_batch, A_batch, G_batch, TDE_batch)
 
         # Add some experiences to the buffer with respect of TD error
-        nb_new_memories = min(10, counter)
+        nb_new_memories = min(5, counter)
 
         idx = torch.randperm(len(A_batch))[:nb_new_memories]
 
@@ -460,9 +407,13 @@ class PolicyGradient:
         # ------------------------------------------------------------------------------------------------------
         # MODEL OPTIMISATION
         # ------------------------------------------------------------------------------------------------------
-        loss, value_loss = self.update_policy(batch)
+        if len(self.A_pa_batch) < self.batch_size:
+            print("nope")
+            loss = 0
+        else:
+            loss, value_loss = self.update_policy(batch)
 
-        return loss, sum_reward, value_loss, torch.sum(TDE_batch).item()
+        return loss, sum_reward
 
     def exploit_one_episode(self, S):
         sum_reward = 0
@@ -477,15 +428,15 @@ class PolicyGradient:
 
             with torch.no_grad():
                 action_probs, V = self.policy(S)
-                As = self.policy.follow_policy(action_probs)
-                V = V.item()
+                action_probs = action_probs.detach().cpu().numpy()[0]
+                A = np.argmax(action_probs)
 
-            S_prime, R, is_terminal = self.environment.take_action(As)
+            S_prime, R, is_terminal = self.environment.take_action_tod(A, V.item())
 
             S = S_prime
             sum_reward += R
-            sum_V += V
+            sum_V += 0
             if is_terminal:
                 break
 
-        return sum_reward, sum_V
+        return sum_reward

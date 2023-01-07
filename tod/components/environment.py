@@ -8,6 +8,8 @@ import re
 import cv2
 import imageio
 import numpy as np
+from sklearn.cluster import MeanShift
+from skimage.feature import hog
 from PIL import Image
 from sklearn.metrics.pairwise import euclidean_distances
 
@@ -15,6 +17,7 @@ import gc
 from matplotlib import pyplot as plt
 
 TASK_MODEL_RES = 200
+ANCHOR_AGENT_RES = 64
 
 
 class Transform:
@@ -43,8 +46,6 @@ class Transform:
             if y < 0:
                 continue
 
-
-
             new_bboxes.append((x, y, w, h))
         return new_bboxes
 
@@ -72,7 +73,7 @@ class Environment:
     He must not mark place where there is house.
     """
 
-    def __init__(self):
+    def __init__(self, train_tod=False):
         self.history = None
         self.min_res = None
         self.min_zoom_action = None
@@ -91,7 +92,7 @@ class Environment:
         self.cv_cuda = check_cuda()
         self.transform = Transform(-50, 50)
         self.difficulty = 0.
-        self.agent = None
+        self.train_tod = train_tod
 
     def reload_env(self, img, bb):
         """
@@ -105,58 +106,67 @@ class Environment:
         self.prepare_coordinates(bb)
         #self.full_img, self.objects_coordinates = self.transform(self.full_img, self.objects_coordinates)
         self.heat_map = np.zeros((TASK_MODEL_RES, TASK_MODEL_RES))
-
+        if self.train_tod:
+            self.bboxes = []
+            self.bboxes_y = []
 
         self.nb_actions_taken = 0
         return self.get_state()
 
+    def reload_env_tod(self, index_bb):
+        self.index_bb = index_bb
+        self.nb_actions_taken_tod = 0
+        return self.get_tod_state()
+
     def prepare_img(self, img):
         self.full_img = cv2.cvtColor(cv2.imread(img), cv2.COLOR_BGR2RGB)
-        H, W, channels = self.full_img.shape
-        # check which dimention is the bigger
-        max_ = np.max([W, H])
-        # check that the image is divisble by 2
-        if max_ % 2:
-            max_ += 1
+        pad = int(ANCHOR_AGENT_RES / 2)
+        self.full_img = cv2.copyMakeBorder(self.full_img, pad, pad, pad, pad, cv2.BORDER_CONSTANT, None, value=0)
 
-        self.full_img = cv2.copyMakeBorder(self.full_img, 0, max_ - H, 0,
-                                           max_ - W, cv2.BORDER_CONSTANT, None, value=0)
         self.base_img = self.full_img.copy()
 
-    def get_state2(self):
-        return np.squeeze(cv2.resize(self.full_img, (100, 100))) / 255.
-        #return np.squeeze(self.full_img) / 255.
+    def get_current_coord(self):
+        x = int(self.nb_actions_taken % 20)
+        y = int(self.nb_actions_taken / 20)
+        pad = int((200) / 20)
+
+        return x * pad, y * pad
+
 
     def get_state(self):
-        if len(self.objects_coordinates) > 0:
-            nb_masked = random.randint(0, len(self.objects_coordinates) - 1)
-        else:
-            nb_masked = 0
 
-        masked_bb = random.choices(self.objects_coordinates, k=nb_masked)
-        self.bboxes = list(set(self.objects_coordinates) - set(masked_bb))
+        x, y = self.get_current_coord()
 
-        temp = cv2.resize(self.full_img, (100, 100))
-        for bb in masked_bb:
-            x, y, w, h, label = bb
-            p1 = (int(x/ 2), int(y/ 2) )
-            p2 = (int((x + w)/ 2), int((y + h)/ 2))
-            temp = cv2.rectangle(temp, p1, p2, [0., 0., 0.], -1)
+        temp = self.full_img[y: y + ANCHOR_AGENT_RES,
+                             x: x + ANCHOR_AGENT_RES]
 
-
-        return temp / 255
+        return cv2.resize(temp, (ANCHOR_AGENT_RES, ANCHOR_AGENT_RES)) / 255.
         #return np.squeeze(self.full_img) / 255.
 
+    def get_tod_state(self):
+        bb_x, bb_y, bb_w, bb_h, _ = self.bboxes[self.index_bb]
+        dim_min = min(bb_w, bb_h)
+
+        temp = self.base_img[bb_y: bb_h + bb_y, bb_x: bb_w + bb_x]
+
+        #temp = cv2.copyMakeBorder(temp, 0, pad_w, 0, pad_h, cv2.BORDER_CONSTANT, None, value=0)
+        temp = cv2.resize(temp, (ANCHOR_AGENT_RES, ANCHOR_AGENT_RES))
+
+        return temp
 
     def prepare_coordinates(self, bb):
         bb_file = open(bb, 'r')
         lines = bb_file.readlines()
+        pad = ANCHOR_AGENT_RES / 2
         for line in lines:
             if line is not None:
                 values = line.split()
-                self.objects_coordinates.append(((float(values[1]), float(values[2]),
-                                                 float(values[3]), float(values[4]), int(float(values[0])))))
 
+                x = int(float(values[1]) + float(values[3]) / 2 + pad)
+                y = int(float(values[2]) + float(values[4]) / 2 + pad)
+
+                self.objects_coordinates.append(((float(values[1]) + pad, float(values[2]) + pad,
+                                                 float(values[3]), float(values[4]), int(float(values[0])), (x, y))))
 
     # https://gist.github.com/meyerjo/dd3533edc97c81258898f60d8978eddc
     def intersection_over_union(self, boxA, boxB):
@@ -181,7 +191,7 @@ class Environment:
         # return the intersection over union value
         return iou
 
-    def non_max_suppression(self, boxes, conf_threshold=0.1, iou_threshold=0.1):
+    def non_max_suppression(self, boxes, conf_threshold=0.002, iou_threshold=0.1):
         """
         The function performs nms on the list of boxes:
         boxes: [box1, box2, box3...]
@@ -190,9 +200,10 @@ class Environment:
         bbox_list_thresholded = []  # List to contain the boxes after filtering by confidence
         bbox_list_new = []  # List to contain final boxes after nms
         # Stage 1: (Sort boxes, and filter out boxes with low confidence)
-        boxes_sorted = sorted(boxes, reverse=True, key=lambda x: x[5])  # Sort boxes according to confidence
+        boxes_sorted = sorted(boxes, reverse=True, key=lambda x: x[4])  # Sort boxes according to confidence
         for box in boxes_sorted:
-            if box[5] > conf_threshold:  # Check if the box has a confidence greater than the threshold
+            print(box[4])
+            if box[4] > conf_threshold * 100:  # Check if the box has a confidence greater than the threshold
                 bbox_list_thresholded.append(box)  # Append the box to the list of thresholded boxes
             else:
                 break
@@ -200,30 +211,23 @@ class Environment:
         while len(bbox_list_thresholded) > 0:
             current_box = bbox_list_thresholded.pop(0)  # Remove the box with highest confidence
             bbox_list_new.append(current_box)  # Append it to the list of final boxes
-            for box in bbox_list_thresholded:
+            for i, box in enumerate(bbox_list_thresholded):
                 if True:  # Check if both boxes belong to the same class
                     iou = self.intersection_over_union(current_box[:4], box[:4])  # Calculate the IOU of the two boxes
+
                     if iou > iou_threshold:  # Check if the iou is greater than the threshold defined
-                        bbox_list_thresholded.remove(box)  # If there is significant overlap, then remove the box
+                        bbox_list_thresholded.pop(i)  # If there is significant overlap, then remove the box
         return bbox_list_new
 
-    def action_to_box(self, actions):
-        pad = TASK_MODEL_RES / self.action_space
-        x = pad * actions[0]
-        y = pad * actions[1]
-
-        w = pad * (actions[2] + 1)
-        w = TASK_MODEL_RES - x if x + w > TASK_MODEL_RES else w
-
-        h = pad * (actions[3] + 1)
-        h = TASK_MODEL_RES - y if y + h > TASK_MODEL_RES else h
-        return x, y, w, h
-
-    def difficulty_up(self):
-        self.difficulty += 0.1
+    def distance(self, centroid1, centroid2):
+        dist = ((centroid1[0] - centroid2[0]) ** 2 + (centroid1[1] - centroid2[1]) ** 2) // 2
+        if dist == 0.:
+            dist = 1
+        dist = 1 / dist
+        return dist
 
     def bb_to_x2(self, img, bboxes):
-        x, y, w, h = bboxes
+        x, y, w, h, _ = bboxes
         x = int(x)
         y = int(y)
         w = int(w)
@@ -244,86 +248,153 @@ class Environment:
 
         return cropped_img / 255.
 
-    def bb_to_x(self, img, bboxes):
-        x, y, w, h = bboxes
-        x = int(x)
-        y = int(y)
-        w = int(w)
-        h = int(h)
+    def reduce(self):
+        clustering = MeanShift(bandwidth=10).fit(self.bboxes)
+        self.bboxes = []
+        _, count = np.unique(clustering.labels_, return_counts=True)
+        for i, bb in enumerate(clustering.cluster_centers_):
+            if count[i] < 3:
+                continue
 
-        cropped_img = img[y:y + h, x:x + w]
+            bb_x, bb_y = bb
+            bb_x -= 16
+            bb_y -= 16
+            bb_w, bb_h = 32, 32
+            self.bboxes.append((bb_x, bb_y, bb_w, bb_h, 11))
 
-        cropped_img = cv2.resize(cropped_img, (64, 64))
+        self.bboxes = np.array(self.bboxes, dtype=int)
 
-        return cropped_img / 255.
-
-    def take_action(self, actions, conf):
+    def take_action(self, action):
 
         reward = 0.
         self.nb_actions_taken += 1
         is_terminal = False
 
-        agent_bbox = self.action_to_box(actions)
-        max_i = 0
-        for i, bbox in enumerate(self.bboxes):
-            iou = self.intersection_over_union(agent_bbox, bbox)
+        x, y = self.get_current_coord()
 
-            if iou > reward:
-                reward = iou
-                max_i = i
+        x += 32
+        y += 32
 
-        x, y, w, h = agent_bbox
-        self.history.append((x, y, w, h, 1, reward))
+        for i, bbox in enumerate(self.objects_coordinates):
+            _, _, _, _, _, centroid = bbox
 
-        X = self.bb_to_x(self.full_img, agent_bbox)
+            dist = self.distance(centroid, (x, y))
 
-        if reward >= 0.4:
-            x, y, w, h, label = self.objects_coordinates.pop(max_i)
+            if dist > reward:
+                reward = dist
 
-            p1 = (int(x), int(y))
-            p2 = (int(x + w), int(y + h))
-            self.full_img = cv2.rectangle(self.full_img, p1, p2, [0., 0., 0.], -1)
-            state_change = True
-            Y = 1.
-            Y_classification = label
-            self.agent.add_to_ds(X, Y, label)
-        elif reward < 0.1:
-            #reward = 0.
-            Y = 0.
-            self.agent.add_to_ds(X, Y, 0)
+        if action == 1 and reward >= 0.01:
+            self.full_img = cv2.circle(self.full_img, (x, y), 5, [0., 0., 0.], -1)
+            reward = 1.
 
-        iou, cat_pred = self.agent.pred_class(X)
+        elif action == 0 and reward <= 0.01:
+            reward = 0.1
+        else:
+            reward = 0.
 
-        self.add_to_history(agent_bbox, reward, cat_pred)
-        #reward = iou
+        if action == 1:
+            self.history.append((x, y, reward))
+            if self.train_tod:
+                self.bboxes.append((x, y))
 
         S_prime = self.get_state()
-        state_change = True
 
-        if self.nb_actions_taken >= 50:
+        if self.nb_actions_taken >= 400:
+
             is_terminal = True
 
-        if len(self.objects_coordinates) <= 0:
+        return S_prime, reward, is_terminal
+
+    def take_action_tod(self, A, conf):
+        is_terminal = False
+
+        self.nb_actions_taken_tod += 1
+        pad = 2
+
+        agent_bbox = self.bboxes[self.index_bb]
+        old_iou = 0.
+        for bbox in self.objects_coordinates:
+            x, y, w, h, _, _ = bbox
+
+            iou = self.intersection_over_union((x, y, w, h), agent_bbox)
+            if iou > old_iou:
+                old_iou = iou
+
+        if A == 0:
+            self.bboxes[self.index_bb][2] += pad
+        elif A == 1:
+            self.bboxes[self.index_bb][3] += pad
+        elif A == 2:
+            if self.bboxes[self.index_bb][2] >= 30:
+                self.bboxes[self.index_bb][2] -= pad
+        elif A == 3:
+            if self.bboxes[self.index_bb][3] >= 30:
+                self.bboxes[self.index_bb][3] -= pad
+        elif A == 4:
+            if self.bboxes[self.index_bb][0] >= pad:
+                self.bboxes[self.index_bb][0] -= pad
+                self.bboxes[self.index_bb][2] += pad
+        elif A == 5:
+            if self.bboxes[self.index_bb][2] >= 30:
+                self.bboxes[self.index_bb][0] += pad
+                self.bboxes[self.index_bb][2] -= pad
+        elif A == 6:
+            if self.bboxes[self.index_bb][1] >= pad:
+                self.bboxes[self.index_bb][1] -= pad
+                self.bboxes[self.index_bb][3] += pad
+        elif A == 7:
+            if self.bboxes[self.index_bb][3] >= 30:
+                self.bboxes[self.index_bb][1] += pad
+                self.bboxes[self.index_bb][3] -= pad
+
+
+        self.bboxes[self.index_bb][4] = int(conf * 100)
+
+        if self.nb_actions_taken_tod >= 50:
             is_terminal = True
 
-        return S_prime, reward, is_terminal, state_change
+        agent_bbox = self.bboxes[self.index_bb]
+        new_iou = 0.
+        for bbox in self.objects_coordinates:
+            x, y, w, h, _, _ = bbox
+
+            iou = self.intersection_over_union((x, y, w, h), agent_bbox)
+            if iou > new_iou:
+                new_iou = iou
+
+        reward = (new_iou - old_iou) * 10.
+        if reward < 0.:
+            reward = 0.
+
+        next_state = self.get_tod_state()
+
+        return next_state, reward, is_terminal
+
 
     def add_to_history(self, bbox, iou, label):
         x, y, w, h = bbox
         self.history.append((x, y, w, h, label, iou))
 
-    def get_heat_map(self):
+    def DOT_history(self):
+        history_img = self.base_img.copy()
+        for coord in self.history:
+            x, y, dist = coord
+            history_img = cv2.circle(history_img, (x, y), 5, [255., 0., 0.], 2)
+        return history_img
 
-        bboxes = self.non_max_suppression(self.history)
+
+    def TOD_history(self):
+
+        bboxes = self.non_max_suppression(self.bboxes)
         history_img = self.base_img.copy()
 
         for bb in bboxes:
-            x, y, w, h, label, conf = bb
-            print(label)
+            x, y, w, h, conf = bb
+
             p1 = (int(x), int(y))
             p2 = (int(x + w), int(y + h))
             history_img = cv2.rectangle(history_img, p1, p2, [255., 0., 0.], 2)
-            history_img = cv2.putText(history_img, str(label) + ' ' + str(conf), (int(x + w / 2), int(y + 10)),
+            history_img = cv2.putText(history_img, 'haha', (int(x + w / 2), int(y + 10)),
                                 cv2.FONT_HERSHEY_SIMPLEX,
                                 0.3,
                                 [255, 0, 0], 1, cv2.LINE_AA)
