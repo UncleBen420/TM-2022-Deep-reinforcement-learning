@@ -14,7 +14,7 @@ def print_hi(name):
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
     trainer = Trainer()
-    trainer.train(1000, "../../Seal/Train")
+    trainer.train(500, "../../Seal/Train")
     trainer.evaluate("../../Seal/Train")
 #trainer.train(400, "../../dataset_marker")
 

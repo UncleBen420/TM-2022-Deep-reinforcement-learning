@@ -9,63 +9,15 @@ from torch.optim.lr_scheduler import StepLR
 # From OpenAI Baselines:
 # https://github.com/openai/baselines/blob/master/baselines/ddpg/noise.py
 
-class CategoricalNet(nn.Module):
-    def __init__(self, classes=5):
-        super(CategoricalNet, self).__init__()
-
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.classes = classes
-
-        self.backbone = torch.nn.Sequential(
-            torch.nn.Conv2d(3, 16, kernel_size=7, stride=3),
-            torch.nn.Dropout(0.2),
-            torch.nn.ReLU(),
-            torch.nn.Conv2d(16, 32, kernel_size=5, stride=2),
-            torch.nn.ReLU(),
-            torch.nn.BatchNorm2d(32),
-            torch.nn.Conv2d(32, 64, kernel_size=3, stride=2),
-            torch.nn.Dropout(0.2),
-            torch.nn.ReLU(),
-            torch.nn.Conv2d(64, 128, kernel_size=3),
-            torch.nn.Dropout(0.2),
-            torch.nn.ReLU(),
-            torch.nn.Flatten(),
-        )
-
-        self.iou_head = torch.nn.Sequential(
-            torch.nn.Linear(128, 64),
-            torch.nn.ReLU(),
-            torch.nn.Linear(64, 20),
-            torch.nn.ReLU(),
-            torch.nn.Linear(20, 1),
-            torch.nn.Sigmoid()
-        )
-
-        self.cat_head = torch.nn.Sequential(
-            torch.nn.Linear(128, 64),
-            torch.nn.ReLU(),
-            torch.nn.Linear(64, 20),
-            torch.nn.ReLU(),
-            torch.nn.Linear(20, classes),
-            torch.nn.Softmax(dim=1)
-        )
-
-    def forward(self, X):
-        x = self.backbone(X)
-        return self.iou_head(x), self.cat_head(x)
-
-    def prepare_data(self, state):
-        return state.permute(0, 3, 1, 2)
-
-
-class PolicyNet(nn.Module):
-    def __init__(self, nb_actions=8, n_kernels=64):
-        super(PolicyNet, self).__init__()
+class ClassNet(nn.Module):
+    def __init__(self, nb_actions=8, classes=5, n_kernels=64):
+        super(ClassNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         self.action_space = np.arange(nb_actions)
         self.nb_actions = nb_actions
+        self.classes = classes
 
         self.backbone = torch.nn.Sequential(
             torch.nn.Conv2d(3, 16, kernel_size=7, stride=3),
@@ -82,43 +34,24 @@ class PolicyNet(nn.Module):
             torch.nn.Flatten(),
         )
 
-        self.middle = torch.nn.Sequential(
+        self.classification_head = torch.nn.Sequential(
             torch.nn.Linear(576, 250),
             torch.nn.ReLU(),
             torch.nn.Linear(250, 100),
-            torch.nn.ReLU()
-        )
-
-        self.policy_head = torch.nn.Sequential(
+            torch.nn.ReLU(),
             torch.nn.Linear(100, 32),
             torch.nn.ReLU(),
-            torch.nn.Linear(32, self.nb_actions),
-            torch.nn.Softmax(dim=1)
-        )
-
-        self.v_head = torch.nn.Sequential(
-            torch.nn.Linear(100, 32),
-            torch.nn.ReLU(),
-            torch.nn.Linear(32, 8),
-            torch.nn.ReLU(),
-            torch.nn.Linear(8, 1)
+            torch.nn.Linear(32, classes)
         )
 
         self.backbone.to(self.device)
-        self.middle.to(self.device)
 
-        self.middle.apply(self.init_weights)
+    def get_class(self, class_preds):
+        proba = torch.nn.functional.softmax(class_preds, dim=1).squeeze()
+        pred = torch.argmax(proba).item()
+        conf = proba[pred]
+        return pred, conf.item()
 
-
-    def follow_policy(self, probs):
-        return np.random.choice(self.action_space, p=probs)
-
-    def e_greedy(self, probs):
-        p = np.random.random()
-        if p < 0.1:
-            return np.random.choice(self.action_space)
-        else:
-            return np.argmax(probs)
 
     def init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -130,10 +63,79 @@ class PolicyNet(nn.Module):
 
     def forward(self, state):
         x = self.backbone(state)
-        x = self.middle(x)
+        class_preds = self.classification_head(x)
+        return class_preds
+
+class PolicyNet(nn.Module):
+    def __init__(self, nb_actions=8, classes=5, n_kernels=64):
+        super(PolicyNet, self).__init__()
+
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+        self.action_space = np.arange(nb_actions)
+        self.nb_actions = nb_actions
+        self.classes = classes
+
+        self.backbone = torch.nn.Sequential(
+            torch.nn.Conv2d(3, 16, kernel_size=7, stride=3),
+            torch.nn.ReLU(),
+            torch.nn.BatchNorm2d(16),
+            #torch.nn.Dropout(0.1),
+            torch.nn.Conv2d(16, 32, kernel_size=5, stride=2),
+            torch.nn.ReLU(),
+            torch.nn.BatchNorm2d(32),
+            torch.nn.Conv2d(32, 64, kernel_size=3, stride=2),
+            torch.nn.ReLU(),
+            #torch.nn.BatchNorm2d(64),
+            torch.nn.Dropout(0.1),
+            torch.nn.Flatten(),
+        )
+
+        self.policy_head = torch.nn.Sequential(
+            torch.nn.Linear(576, 250),
+            torch.nn.ReLU(),
+            torch.nn.Linear(250, 100),
+            torch.nn.ReLU(),
+            torch.nn.Linear(100, 32),
+            torch.nn.ReLU(),
+            torch.nn.Linear(32, self.nb_actions),
+            torch.nn.Softmax(dim=1)
+        )
+
+        self.classification_head = torch.nn.Sequential(
+            torch.nn.Linear(576, 250),
+            torch.nn.ReLU(),
+            torch.nn.Linear(250, 100),
+            torch.nn.ReLU(),
+            torch.nn.Linear(100, 32),
+            torch.nn.ReLU(),
+            torch.nn.Linear(32, classes)
+        )
+
+        self.backbone.to(self.device)
+
+    def follow_policy(self, probs):
+        return np.random.choice(self.action_space, p=probs)
+
+    def get_class(self, class_preds):
+        proba = torch.nn.functional.softmax(class_preds, dim=1).squeeze()
+        pred = torch.argmax(proba).item()
+        conf = proba[pred]
+        return pred, conf.item()
+
+    def init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            torch.nn.init.xavier_uniform_(m.weight)
+            m.bias.data.fill_(0.01)
+
+    def prepare_data(self, state):
+        return state.permute(0, 3, 1, 2)
+
+    def forward(self, state):
+        x = self.backbone(state)
         preds = self.policy_head(x)
-        v = self.v_head(x)
-        return preds, v
+        class_preds = self.classification_head(x)
+        return preds, class_preds
 
 class TOD:
 
@@ -143,20 +145,21 @@ class TOD:
 
         self.gamma = gamma
         self.environment = environment
-        self.environment.agent = self
+        self.environment.tod = self
 
         self.beta_coef = beta_coef
         self.entropy_coef = entropy_coef
         self.min_r = 0
         self.max_r = 1
         self.policy = PolicyNet()
-        self.catnet = CategoricalNet()
+        #self.class_net = ClassNet()
+        self.nb_per_class = np.zeros(self.policy.classes)
 
         self.batch_size = batch_size
         self.pa_dataset_size = pa_dataset_size
+        #self.class_optimizer = torch.optim.Adam(self.class_net.parameters(), lr=learning_rate)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=learning_rate)
 
-        self.cat_optimizer = torch.optim.Adam(self.catnet.parameters(), lr=0.001)
         self.pa_batch_size = pa_batch_size
 
         # Past Actions Buffer
@@ -165,93 +168,59 @@ class TOD:
         self.TDE_pa_batch = None
         self.G_pa_batch = None
 
-        self.X_bad = None
-        self.X_good = None
-        self.Y_bad = None
-        self.Y_good = None
-        self.Y_label = None
+        self.X = None
+        self.Y = None
 
-    def pred_class(self, X):
-        # Data preparation
-        X = torch.from_numpy(X).float()
-        X = X.unsqueeze(0).to(self.catnet.device)
-        X = self.catnet.prepare_data(X)
+    def add_to_ds(self, X, Y):
 
-        # prediction
-        iou, cat_pred = self.catnet(X)
+        if np.argmax(self.nb_per_class) == Y and np.std(self.nb_per_class) > 5.:
+            return
 
-        # prediction to numpy
-        cat_pred = torch.nn.functional.softmax(cat_pred, dim=1)
-        cat_pred = cat_pred.detach().cpu().numpy()[0]
-        cat_pred = np.argmax(cat_pred)
-        return iou.item(), cat_pred
-
-    def add_to_ds(self, X, Y, label):
+        self.nb_per_class[Y] += 1
 
         X = torch.from_numpy(X).float()
-        X = X.unsqueeze(0).to(self.catnet.device)
-        X = self.catnet.prepare_data(X)
+        X = X.unsqueeze(0).to(self.policy.device)
+        X = self.policy.prepare_data(X)
 
-        if Y == 1.:
-            Y = torch.FloatTensor([Y]).to(self.catnet.device)
-            label = torch.LongTensor([label]).to(self.catnet.device)
-            #label = torch.nn.functional.one_hot(label, self.catnet.classes)
+        Y = torch.LongTensor([Y]).to(self.policy.device)
 
-            if self.X_good is None:
-                self.X_good = X
-                self.Y_good = Y
-                self.Y_label = label
-            else:
-                self.X_good = torch.cat((self.X_good, X), 0)
-                self.Y_good = torch.cat((self.Y_good, Y), 0)
-                self.Y_label = torch.cat((self.Y_label, label), 0)
+        if self.X is None:
+            self.X = X
+            self.Y = Y
         else:
-            Y = torch.FloatTensor([Y]).to(self.catnet.device)
-            if self.X_bad is None:
-                self.X_bad = X
-                self.Y_bad = Y
-            else:
-                self.X_bad = torch.cat((self.X_bad, X), 0)
-                self.Y_bad = torch.cat((self.Y_bad, Y), 0)
+            self.X = torch.cat((self.X, X), 0)
+            self.Y = torch.cat((self.Y, Y), 0)
 
-    def trim_ds(self, X, Y, label=None):
-        if X is not None and len(X) > self.pa_dataset_size:
+
+    def trim_ds(self):
+        if self.X is not None and len(self.X) > self.pa_dataset_size:
             # shuffling the batch
-            shuffle_index = torch.randperm(len(X))
-            X = X[shuffle_index]
-            Y = Y[shuffle_index]
-            if label is not None:
-                label = label[shuffle_index]
-
+            shuffle_index = torch.randperm(len(self.X))
+            X = self.X[shuffle_index]
+            Y = self.Y[shuffle_index]
 
             # dataset clipping
-            max_size = min(self.pa_dataset_size, len(self.X_good), len(self.X_bad))
-            surplus = len(X) - max_size
-            _, X = torch.split(X, [surplus, max_size])
-            _, Y = torch.split(Y, [surplus, max_size])
-            if label is not None:
-                _, label = torch.split(label, [surplus, max_size])
+            max_size = min(self.pa_dataset_size, len(self.X))
+            surplus = len(self.X) - max_size
+            _, self.X = torch.split(self.X, [surplus, max_size])
+            released, self.Y = torch.split(self.Y, [surplus, max_size])
 
-        return X, Y, label
+            _, count = released.unique(return_counts=True)
+            for i in len(count):
+                self.nb_per_class[i] -= count[i].item()
 
     def train_classification(self):
-        self.cat_optimizer.zero_grad()
-        X = torch.cat((self.X_good, self.X_bad), dim=0)
-        Y = torch.cat((self.Y_good, self.Y_bad), dim=0)
-        pred, cat_pred = self.catnet(X)
-        loss = torch.nn.functional.binary_cross_entropy(pred.squeeze(), Y)
-        print(loss)
-        loss.backward(retain_graph=True)
+        if len(self.X) < self.batch_size:
+            return 0
+        self.optimizer.zero_grad()
 
-        cat_pred = cat_pred[Y == 1]
+        _, class_preds = self.policy(self.X)
+        loss = torch.nn.functional.cross_entropy(class_preds, self.Y)
+        loss.backward()
+        self.optimizer.step()
+        print(loss.item())
 
-        cat_loss = torch.nn.functional.cross_entropy(cat_pred, self.Y_label)
-
-        cat_loss.backward()
-        #torch.nn.utils.clip_grad_norm_(self.catnet.parameters(), 10)
-        self.cat_optimizer.step()
-
-        return loss.item() + cat_loss.item()
+        return loss.item()
 
     def save(self, file):
         torch.save(self.policy.state_dict(), file)
@@ -262,7 +231,7 @@ class TOD:
     def model_summary(self):
         print("RUNNING ON {0}".format(self.policy.device))
         print(self.policy)
-        print(self.catnet)
+        #print(self.class_net)
         print("TOTAL PARAMS: {0}".format(sum(p.numel() for p in self.policy.parameters())
                                          + sum(p.numel() for p in self.catnet.parameters())))
 
@@ -275,19 +244,15 @@ class TOD:
 
         # Calculate loss
         self.optimizer.zero_grad()
-        action_probs, V = self.policy(S)
+        action_probs, _ = self.policy(S)
 
         log_probs = torch.log(action_probs)
         log_probs = torch.nan_to_num(log_probs)
 
         selected_log_probs = torch.gather(log_probs, 1, A.unsqueeze(1))
 
-        #entropy_loss = - self.entropy_coef * (action_probs * log_probs).sum(1).mean()
-        value_loss = torch.nn.functional.mse_loss(V.squeeze(), G.detach().squeeze())
-        #value_loss = self.beta_coef * torch.nn.functional.mse_loss(V.squeeze(), G)
-        value_loss.backward(retain_graph=True)
         policy_loss = - (G.unsqueeze(1) * selected_log_probs).mean()
-        loss = policy_loss #+ entropy_loss# + value_loss
+        loss = policy_loss
         loss.backward()
 
         self.optimizer.step()
@@ -319,18 +284,21 @@ class TOD:
             S = S.unsqueeze(0).to(self.policy.device)
             S = self.policy.prepare_data(S)
             with torch.no_grad():
-                action_probs, v = self.policy(S)
-                action_probs = action_probs.detach().cpu().numpy()[0]
+                action_probs, class_preds = self.policy(S)
+                #class_preds = self.class_net(S)
 
+                action_probs = action_probs.detach().cpu().numpy()[0]
                 A = self.policy.follow_policy(action_probs)
 
-            S_prime, R, is_terminal = self.environment.take_action_tod(A, v.item())
+                label, conf = self.policy.get_class(class_preds)
 
-            sum_v += v.item()
+            S_prime, R, is_terminal = self.environment.take_action_tod(A, conf, label)
+
+            sum_v += conf
 
             S_batch.append(S)
             A_batch.append(A)
-            V_batch.append(v.item())
+            V_batch.append(conf)
             R_batch.append(R)
             sum_reward += R
 
@@ -427,11 +395,15 @@ class TOD:
             S = self.policy.prepare_data(S)
 
             with torch.no_grad():
-                action_probs, V = self.policy(S)
-                action_probs = action_probs.detach().cpu().numpy()[0]
-                A = np.argmax(action_probs)
+                action_probs, class_preds = self.policy(S)
+                #class_preds = self.class_net(S)
 
-            S_prime, R, is_terminal = self.environment.take_action_tod(A, V.item())
+                action_probs = action_probs.detach().cpu().numpy()[0]
+                A = self.policy.follow_policy(action_probs)
+
+                label, conf = self.policy.get_class(class_preds)
+
+            S_prime, R, is_terminal = self.environment.take_action_tod(A, conf, label)
 
             S = S_prime
             sum_reward += R

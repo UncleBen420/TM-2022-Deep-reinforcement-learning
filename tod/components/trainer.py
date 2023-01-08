@@ -2,6 +2,7 @@ import gc
 import os
 import random
 
+import imageio
 import numpy as np
 from matplotlib import pyplot as plt
 from tqdm import tqdm
@@ -50,17 +51,17 @@ class Trainer:
                 nb_action.append(st)
 
                 episode.set_postfix(rewards=sum_reward, loss=loss, nb_action=st)
-
+        self.agent_tod.train_classification()
+        self.agent_tod.trim_ds()
 
     def eval_tod(self):
         rewards = []
         losses = []
         nb_action = []
         self.env.reduce()
-
+        frames = []
         with tqdm(range(len(self.env.bboxes)), unit="episode") as episode:
             for i in episode:
-
                 first_state = self.env.reload_env_tod(i)
                 sum_reward = self.agent_tod.exploit_one_episode(first_state)
 
@@ -69,8 +70,12 @@ class Trainer:
                 nb_action.append(st)
 
                 episode.set_postfix(rewards=sum_reward,  nb_action=st)
+                frames.extend(self.env.steps_recorded)
+
             plt.imshow(self.env.TOD_history())
             plt.show()
+
+            return frames
 
     def train(self, nb_episodes, train_path):
 
@@ -108,7 +113,7 @@ class Trainer:
                         break
 
                 train_tod = False
-                if i > 10 and i % 10 == 0:
+                if i > 10 and i % 5 == 0:
                     train_tod = True
 
                 self.env.train_tod = train_tod
@@ -124,7 +129,8 @@ class Trainer:
 
                 episode.set_postfix(rewards=sum_reward / st, loss=loss, nb_action=st, V=sum_v, tde=mean_tde)
 
-                if i > 10 and i % 10 == 0:
+                if i > 10 and i % 5 == 0:
+                    self.env.add_bbox_for_class()
                     self.train_tod()
                     #plt.imshow(self.env.TOD_history())
                     #plt.show()
@@ -159,8 +165,8 @@ class Trainer:
         # --------------------------------------------------------------------------------------------------------------
         # EVALUATION STEPS
         # --------------------------------------------------------------------------------------------------------------
+        self.env.record = True
         with tqdm(range(len(self.img_list)), unit="episode") as episode:
-        #with tqdm(range(5), unit="episode") as episode:
             for i in episode:
                 img_filename = self.img_list[i]
                 img = os.path.join(self.img_path, img_filename)
@@ -178,10 +184,12 @@ class Trainer:
                 plt.show()
 
                 episode.set_postfix(rewards=sum_reward, nb_action=st, V=sum_v / st)
+                frames = self.env.steps_recorded
+                frames.extend(self.eval_tod())
+                frames.extend([self.env.TOD_history()])
 
-                self.eval_tod()
 
-
+                imageio.mimsave(img_filename + ".gif", frames, duration=0.01)
 
         # --------------------------------------------------------------------------------------------------------------
         # PLOT
