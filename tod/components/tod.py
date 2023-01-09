@@ -9,62 +9,6 @@ from torch.optim.lr_scheduler import StepLR
 # From OpenAI Baselines:
 # https://github.com/openai/baselines/blob/master/baselines/ddpg/noise.py
 
-class ClassNet(nn.Module):
-    def __init__(self, nb_actions=8, classes=5, n_kernels=64):
-        super(ClassNet, self).__init__()
-
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-        self.action_space = np.arange(nb_actions)
-        self.nb_actions = nb_actions
-        self.classes = classes
-
-        self.backbone = torch.nn.Sequential(
-            torch.nn.Conv2d(3, 16, kernel_size=7, stride=3),
-            torch.nn.ReLU(),
-            torch.nn.BatchNorm2d(16),
-            #torch.nn.Dropout(0.1),
-            torch.nn.Conv2d(16, 32, kernel_size=5, stride=2),
-            torch.nn.ReLU(),
-            torch.nn.BatchNorm2d(32),
-            torch.nn.Conv2d(32, 64, kernel_size=3, stride=2),
-            torch.nn.ReLU(),
-            #torch.nn.BatchNorm2d(64),
-            torch.nn.Dropout(0.1),
-            torch.nn.Flatten(),
-        )
-
-        self.classification_head = torch.nn.Sequential(
-            torch.nn.Linear(576, 250),
-            torch.nn.ReLU(),
-            torch.nn.Linear(250, 100),
-            torch.nn.ReLU(),
-            torch.nn.Linear(100, 32),
-            torch.nn.ReLU(),
-            torch.nn.Linear(32, classes)
-        )
-
-        self.backbone.to(self.device)
-
-    def get_class(self, class_preds):
-        proba = torch.nn.functional.softmax(class_preds, dim=1).squeeze()
-        pred = torch.argmax(proba).item()
-        conf = proba[pred]
-        return pred, conf.item()
-
-
-    def init_weights(self, m):
-        if isinstance(m, nn.Linear):
-            torch.nn.init.xavier_uniform_(m.weight)
-            m.bias.data.fill_(0.01)
-
-    def prepare_data(self, state):
-        return state.permute(0, 3, 1, 2)
-
-    def forward(self, state):
-        x = self.backbone(state)
-        class_preds = self.classification_head(x)
-        return class_preds
 
 class PolicyNet(nn.Module):
     def __init__(self, nb_actions=8, classes=5, n_kernels=64):
@@ -152,12 +96,10 @@ class TOD:
         self.min_r = 0
         self.max_r = 1
         self.policy = PolicyNet()
-        #self.class_net = ClassNet()
         self.nb_per_class = np.zeros(self.policy.classes)
 
         self.batch_size = batch_size
         self.pa_dataset_size = pa_dataset_size
-        #self.class_optimizer = torch.optim.Adam(self.class_net.parameters(), lr=learning_rate)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=learning_rate)
 
         self.pa_batch_size = pa_batch_size
@@ -206,7 +148,7 @@ class TOD:
             released, self.Y = torch.split(self.Y, [surplus, max_size])
 
             _, count = released.unique(return_counts=True)
-            for i in len(count):
+            for i in range(len(count)):
                 self.nb_per_class[i] -= count[i].item()
 
     def train_classification(self):
@@ -231,9 +173,7 @@ class TOD:
     def model_summary(self):
         print("RUNNING ON {0}".format(self.policy.device))
         print(self.policy)
-        #print(self.class_net)
-        print("TOTAL PARAMS: {0}".format(sum(p.numel() for p in self.policy.parameters())
-                                         + sum(p.numel() for p in self.catnet.parameters())))
+        print("TOTAL PARAMS: {0}".format(sum(p.numel() for p in self.policy.parameters())))
 
     def update_policy(self, batch):
 
@@ -376,7 +316,6 @@ class TOD:
         # MODEL OPTIMISATION
         # ------------------------------------------------------------------------------------------------------
         if len(self.A_pa_batch) < self.batch_size:
-            print("nope")
             loss = 0
         else:
             loss, value_loss = self.update_policy(batch)
@@ -385,8 +324,6 @@ class TOD:
 
     def exploit_one_episode(self, S):
         sum_reward = 0
-        sum_V = 0
-
         while True:
             # State preprocess
 
@@ -407,7 +344,6 @@ class TOD:
 
             S = S_prime
             sum_reward += R
-            sum_V += 0
             if is_terminal:
                 break
 

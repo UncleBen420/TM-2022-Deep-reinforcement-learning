@@ -59,6 +59,8 @@ class Environment:
         self.nb_classes = 4
         self.record = record
         self.steps_recorded = None
+        self.iou_final = []
+        self.iou_base = []
 
         self.colors = [[255, 0, 0],
                        [0, 0, 255],
@@ -233,7 +235,7 @@ class Environment:
             reward = 0.
 
         if action == 1:
-            self.full_img = cv2.circle(self.full_img, (x, y), 5, [0., 0., 0.], -1)
+            #self.full_img = cv2.circle(self.full_img, (x, y), 5, [0., 0., 0.], -1)
             self.history.append((x, y, reward))
             if self.train_tod:
                 self.bboxes.append((x, y))
@@ -244,7 +246,7 @@ class Environment:
             is_terminal = True
 
         if self.record:
-            self.steps_recorded.append(self.full_img.copy())
+            self.steps_recorded.append(self.DOT_history())
 
         return S_prime, reward, is_terminal
 
@@ -267,9 +269,6 @@ class Environment:
     def take_action_tod(self, A, conf, label):
         is_terminal = False
 
-        if self.record:
-            self.steps_recorded.append(self.get_tod_visualisation())
-
         self.nb_actions_taken_tod += 1
         pad = 2
 
@@ -281,6 +280,11 @@ class Environment:
             iou = self.intersection_over_union((x, y, w, h), agent_bbox)
             if iou > old_iou:
                 old_iou = iou
+
+        if self.record:
+            self.steps_recorded.append(self.get_tod_visualisation())
+            if self.nb_actions_taken_tod == 1:
+                self.iou_base.append(old_iou)
 
         if A == 0:
             self.bboxes[self.index_bb][2] += pad
@@ -332,14 +336,20 @@ class Environment:
 
         next_state = self.get_tod_state()
 
-        if is_terminal:
+        p = random.random()
+        if p > 0.9:
             Y = None
-            if new_iou > 0.7:
+            if new_iou >= 0.7:
                 Y = label
             if new_iou <= 0.:
                 Y = self.nb_classes
             if Y is not None:
                 self.tod.add_to_ds(next_state, Y)
+
+        if self.record:
+            self.steps_recorded.append(self.get_tod_visualisation())
+            if is_terminal:
+                self.iou_final.append(new_iou)
 
         return next_state, reward, is_terminal
 
@@ -352,6 +362,7 @@ class Environment:
         for coord in self.history:
             x, y, dist = coord
             history_img = cv2.circle(history_img, (x, y), 5, [255., 0., 0.], 2)
+
         return history_img
 
     def TOD_history(self):
@@ -361,6 +372,9 @@ class Environment:
 
         for bb in bboxes:
             x, y, w, h, conf, label = bb
+
+            if label == self.nb_classes:
+                continue
 
             p1 = (int(x), int(y))
             p2 = (int(x + w), int(y + h))
