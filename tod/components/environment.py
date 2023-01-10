@@ -68,6 +68,9 @@ class Environment:
                        [255, 255, 0],
                        [255, 0, 255]]
 
+        self.truth_values = []
+        self.predictions = []
+
     def reload_env(self, img, bb):
         """
         allow th agent to keep the environment configuration and boat placement but reload all the history and
@@ -266,7 +269,22 @@ class Environment:
 
             self.tod.add_to_ds(X, Y)
 
-    def take_action_tod(self, A, conf, label):
+    def get_iou_error(self):
+        error = 0.
+        for bbox in self.objects_coordinates:
+            x, y, w, h, _, _ = bbox
+
+            max_iou = 0.
+            for agent_bbox in self.bboxes:
+                iou = self.intersection_over_union((x, y, w, h), agent_bbox)
+                if iou > max_iou:
+                    max_iou = iou
+
+            error += 1. - max_iou
+        return error / len(self.objects_coordinates)
+
+
+    def take_action_tod(self, A, conf, label_pred):
         is_terminal = False
 
         self.nb_actions_taken_tod += 1
@@ -314,7 +332,7 @@ class Environment:
                 self.bboxes[self.index_bb][3] -= pad
 
         self.bboxes[self.index_bb][4] = int(conf * 100)
-        self.bboxes[self.index_bb][5] = label
+        self.bboxes[self.index_bb][5] = label_pred
 
         if self.nb_actions_taken_tod >= 50:
             is_terminal = True
@@ -350,6 +368,13 @@ class Environment:
             self.steps_recorded.append(self.get_tod_visualisation())
             if is_terminal:
                 self.iou_final.append(new_iou)
+                if new_iou <= 0.:
+                    Y = self.nb_classes
+                else:
+                    Y = label
+
+                self.truth_values.append(Y)
+                self.predictions.append(label_pred)
 
         return next_state, reward, is_terminal
 

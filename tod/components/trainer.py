@@ -12,6 +12,9 @@ from components.dot import DOT
 from components.environment import Environment
 from components.tod import TOD
 
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import ConfusionMatrixDisplay
+
 
 def describe(arr):
     print("Measures of Central Tendency")
@@ -70,16 +73,15 @@ class Trainer:
         nb_action = []
         self.env.reduce()
         frames = []
+
         with tqdm(range(len(self.env.bboxes)), unit="episode") as episode:
             for i in episode:
                 first_state = self.env.reload_env_tod(i)
                 sum_reward = self.agent_tod.exploit_one_episode(first_state)
 
-                st = self.env.nb_actions_taken_tod
-                rewards.append(sum_reward / st)
-                nb_action.append(st)
+                rewards.append(sum_reward)
 
-                episode.set_postfix(rewards=sum_reward,  nb_action=st)
+                episode.set_postfix(rewards=sum_reward)
                 frames.extend(self.env.steps_recorded)
 
             plt.imshow(self.env.TOD_history())
@@ -177,6 +179,7 @@ class Trainer:
         # EVALUATION STEPS
         # --------------------------------------------------------------------------------------------------------------
         self.env.record = True
+        iou_error = 0.
         with tqdm(range(len(self.img_list)), unit="episode") as episode:
             for i in episode:
                 img_filename = self.img_list[i]
@@ -199,12 +202,23 @@ class Trainer:
                 frames.extend(self.eval_tod())
                 frames.extend([self.env.TOD_history()])
 
-                create_video(frames, img_filename + ".avi")
+                iou_error += self.env.get_iou_error()
+
+                #create_video(frames, img_filename + ".avi")
                 #imageio.mimsave(img_filename + ".gif", frames, duration=0.01)
+        iou_error /= len(self.img_list)
 
         # --------------------------------------------------------------------------------------------------------------
         # PLOT
         # --------------------------------------------------------------------------------------------------------------
 
         plt.scatter(self.env.iou_base, self.env.iou_final)
+        plt.xlim(0, 1)
+        plt.ylim(0, 1)
         plt.show()
+
+        cm = confusion_matrix(self.env.truth_values, self.env.predictions)
+        cm_display = ConfusionMatrixDisplay(cm).plot()
+        plt.show()
+
+        print(iou_error)
