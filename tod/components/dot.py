@@ -3,21 +3,15 @@ import torch
 from torch import nn
 from torch.optim.lr_scheduler import StepLR
 
-# https://github.com/schneimo/ddpg-pytorch/blob/master
-# https://arxiv.org/pdf/1711.08946.pdf
-
-# From OpenAI Baselines:
-# https://github.com/openai/baselines/blob/master/baselines/ddpg/noise.py
-
 
 class PolicyNet(nn.Module):
-    def __init__(self, img_res=200, n_hidden_nodes=256, n_kernels=64):
+    def __init__(self, img_res=200, actions=2):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-        self.action_space = np.arange(2)
-        self.nb_actions = 2
+        self.action_space = np.arange(actions)
+        self.nb_actions = actions
 
         self.img_res = img_res
 
@@ -32,19 +26,21 @@ class PolicyNet(nn.Module):
             torch.nn.Conv2d(32, 64, kernel_size=3, stride=2),
             torch.nn.ReLU(),
             torch.nn.BatchNorm2d(64),
+            torch.nn.Conv2d(64, 128, kernel_size=3),
+            torch.nn.ReLU(),
             #torch.nn.Dropout(0.1),
             torch.nn.Flatten(),
         )
 
         self.middle = torch.nn.Sequential(
-            torch.nn.Linear(576, 100),
+            torch.nn.Linear(128, 32),
             torch.nn.ReLU(),
-            torch.nn.Linear(100, 32),
+            torch.nn.LayerNorm(32),
+            torch.nn.Linear(32, 8),
             torch.nn.ReLU(),
-            torch.nn.Linear(32, 2),
+            torch.nn.Linear(8, actions),
             torch.nn.Softmax(dim=1)
         )
-
 
         self.backbone.to(self.device)
         self.middle.to(self.device)
@@ -65,15 +61,17 @@ class PolicyNet(nn.Module):
 
     def forward(self, state):
         x = self.backbone(state)
-        x = self.middle(x)
-        return x
+        preds = self.middle(x)
+        return preds
+
 
 class DOT:
 
-    def __init__(self, environment, learning_rate=0.001, gamma=0.1,
+    def __init__(self, environment, learning_rate=0.0005, gamma=0.05,
                  entropy_coef=0.1, beta_coef=0.1,
-                 lr_gamma=0.8, batch_size=64, pa_dataset_size=256, pa_batch_size=100, img_res=64):
+                 lr_gamma=0.7, batch_size=64, pa_dataset_size=256, pa_batch_size=50, img_res=64):
 
+        self.LABEL_pa_batch = None
         self.gamma = gamma
         self.environment = environment
         self.environment.agent = self
@@ -109,16 +107,6 @@ class DOT:
         print(self.policy)
         print("TOTAL PARAMS: {0}".format(sum(p.numel() for p in self.policy.parameters())))
 
-    def a2c(self, advantages, rewards, action_probs, log_probs, selected_log_probs, values):
-
-        policy_loss = - (advantages.unsqueeze(1) * selected_log_probs).mean()
-        loss = policy_loss
-        loss.backward()
-
-        # torch.nn.utils.clip_grad_value_(self.policy.parameters(), 100.)
-        self.optimizer.step()
-        return loss.item()
-
     def update_policy(self, batch):
 
         sum_loss = 0.
@@ -136,7 +124,7 @@ class DOT:
         selected_log_probs = torch.gather(log_probs, 1, A.unsqueeze(1))
 
         loss = - (G.unsqueeze(1) * selected_log_probs).mean()
-        loss.backward()
+        loss.backward(retain_graph=True)
 
         self.optimizer.step()
         self.scheduler.step()
@@ -151,7 +139,7 @@ class DOT:
         S_batch = []
         R_batch = []
         A_batch = []
-        TDE_batch = []
+        LABEL_batch = []
 
         # ------------------------------------------------------------------------------------------------------
         # EPISODE REALISATION
@@ -170,7 +158,6 @@ class DOT:
             with torch.no_grad():
                 action_probs = self.policy(S)
                 action_probs = action_probs.detach().cpu().numpy()[0]
-
                 A = self.policy.follow_policy(action_probs)
 
             S_prime, R, is_terminal = self.environment.take_action(A)
@@ -179,7 +166,6 @@ class DOT:
 
             S_batch.append(S)
             A_batch.append(A)
-            TDE_batch.append(R)
             R_batch.append(R)
             sum_reward += R
 
@@ -196,7 +182,6 @@ class DOT:
         # ------------------------------------------------------------------------------------------------------
         S_batch = torch.concat(S_batch).to(self.policy.device)
         A_batch = torch.LongTensor(A_batch).to(self.policy.device)
-
         G_batch = torch.FloatTensor(R_batch).to(self.policy.device)
 
 

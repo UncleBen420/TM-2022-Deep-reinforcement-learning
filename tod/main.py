@@ -14,8 +14,8 @@ def print_hi(name):
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
     trainer = Trainer()
-    trainer.train(, "../../Seal/Train")
-    trainer.evaluate("../../Seal/Train")
+    trainer.train(10, "../../Seal/Train", plot_metric=True)
+    trainer.evaluate("../../Seal/Train", plot_metric=True)
 #trainer.train(400, "../../dataset_marker")
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/

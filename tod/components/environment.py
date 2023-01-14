@@ -37,6 +37,7 @@ class Environment:
     """
 
     def __init__(self, train_tod=False, record=False):
+        self.current_bbox = None
         self.history = None
         self.min_res = None
         self.min_zoom_action = None
@@ -61,6 +62,13 @@ class Environment:
         self.steps_recorded = None
         self.iou_final = []
         self.iou_base = []
+        self.eval_tod =False
+
+        # TOD metric
+        self.tod_rewards = []
+        self.tod_class_loss = []
+        self.tod_conf_loss = []
+        self.tod_policy_loss = []
 
         self.colors = [[255, 0, 0],
                        [0, 0, 255],
@@ -84,30 +92,52 @@ class Environment:
         self.steps_recorded = []
         # self.full_img, self.objects_coordinates = self.transform(self.full_img, self.objects_coordinates)
         self.heat_map = np.zeros((TASK_MODEL_RES, TASK_MODEL_RES))
-        if self.train_tod:
-            self.bboxes = []
-            self.bboxes_y = []
+
+        self.bboxes = []
+
 
         self.nb_actions_taken = 0
         return self.get_state()
 
-    def reload_env_tod(self, index_bb):
-        self.index_bb = index_bb
+    def reload_env_tod(self, bb):
+
+        bb_x, bb_y = bb
+        bb_x -= 48
+        bb_x = bb_x if bb_x >= 0 else 0
+        bb_y -= 48
+        bb_y = bb_y if bb_y >= 0 else 0
+        bb_w, bb_h = 32, 32
+
+        if bb_x + bb_w >= 200:
+            bb_x = 168
+
+        if bb_y + bb_h >= 200:
+            bb_y = 168
+
+        self.current_bbox = {
+            'x':bb_x,
+            'y':bb_y,
+            'w':bb_w,
+            'h':bb_h,
+            'conf':0.,
+            'label':0.
+        }
+
         self.nb_actions_taken_tod = 0
-        self.steps_recorded = []
+
         return self.get_tod_state()
 
     def prepare_img(self, img):
         self.full_img = cv2.cvtColor(cv2.imread(img), cv2.COLOR_BGR2RGB)
-        pad = int(ANCHOR_AGENT_RES / 2)
-        self.full_img = cv2.copyMakeBorder(self.full_img, pad, pad, pad, pad, cv2.BORDER_CONSTANT, None, value=0)
 
+        pad = int(ANCHOR_AGENT_RES / 2)
         self.base_img = self.full_img.copy()
+        self.full_img = cv2.copyMakeBorder(self.full_img, pad, pad, pad, pad, cv2.BORDER_REFLECT)
 
     def get_current_coord(self):
-        x = int(self.nb_actions_taken % 20)
-        y = int(self.nb_actions_taken / 20)
-        pad = int((200) / 20)
+        x = int(self.nb_actions_taken % 10)
+        y = int(self.nb_actions_taken / 10)
+        pad = int((200) / 10)
 
         return x * pad, y * pad
 
@@ -118,17 +148,21 @@ class Environment:
         temp = self.full_img[y: y + ANCHOR_AGENT_RES,
                x: x + ANCHOR_AGENT_RES]
 
-        return cv2.resize(temp, (ANCHOR_AGENT_RES, ANCHOR_AGENT_RES)) / 255.
+        temp = cv2.resize(temp, (ANCHOR_AGENT_RES, ANCHOR_AGENT_RES)) / 255.
+        return temp
         # return np.squeeze(self.full_img) / 255.
 
     def get_tod_state(self):
-        bb_x, bb_y, bb_w, bb_h, _, _ = self.bboxes[self.index_bb]
-        temp = self.base_img[bb_y: bb_h + bb_y, bb_x: bb_w + bb_x]
-        return cv2.resize(temp, (ANCHOR_AGENT_RES, ANCHOR_AGENT_RES))
+        temp = self.base_img[self.current_bbox['y']: self.current_bbox['y'] + self.current_bbox['h'],
+                             self.current_bbox['x']: self.current_bbox['x'] + self.current_bbox['w']]
+        temp = cv2.resize(temp, (ANCHOR_AGENT_RES, ANCHOR_AGENT_RES)) / 255.
+        return temp
 
     def get_tod_visualisation(self):
-        x, y, w, h, conf, label = self.bboxes[self.index_bb]
-        return cv2.rectangle(self.base_img.copy(), (x, y), (x + w, y + h), self.colors[label], 2)
+        return cv2.rectangle(self.base_img.copy(), (self.current_bbox['x'], self.current_bbox['y']),
+                             (self.current_bbox['x'] + self.current_bbox['w'],
+                              self.current_bbox['y'] + self.current_bbox['h']),
+                             self.colors[int(self.current_bbox['label'])], 2)
 
     def prepare_coordinates(self, bb):
         bb_file = open(bb, 'r')
@@ -141,7 +175,7 @@ class Environment:
                 x = int(float(values[1]) + float(values[3]) / 2 + pad)
                 y = int(float(values[2]) + float(values[4]) / 2 + pad)
 
-                self.objects_coordinates.append(((float(values[1]) + pad, float(values[2]) + pad,
+                self.objects_coordinates.append(((float(values[1]), float(values[2]),
                                                   float(values[3]), float(values[4]), int(float(values[0])), (x, y))))
 
     # https://gist.github.com/meyerjo/dd3533edc97c81258898f60d8978eddc
@@ -167,85 +201,101 @@ class Environment:
         # return the intersection over union value
         return iou
 
-    def non_max_suppression(self, boxes, conf_threshold=0.5, iou_threshold=0.1):
+    def non_max_suppression(self, boxes, conf_threshold=0., iou_threshold=0.1):
 
         bbox_list_thresholded = []  # List to contain the boxes after filtering by confidence
         bbox_list_new = []  # List to contain final boxes after nms
 
         boxes_sorted = sorted(boxes, reverse=True, key=lambda x: x[4])  # Sort boxes according to confidence
         for box in boxes_sorted:
-            if box[4] > conf_threshold * 100:  # Check if the box has a confidence greater than the threshold
+            if box[4] >= conf_threshold:  # Check if the box has a confidence greater than the threshold
                 bbox_list_thresholded.append(box)  # Append the box to the list of thresholded boxes
             else:
                 break
         while len(bbox_list_thresholded) > 0:
             current_box = bbox_list_thresholded.pop(0)
             bbox_list_new.append(current_box)
-            for i, box in enumerate(bbox_list_thresholded):
+            for box in bbox_list_thresholded:
                 iou = self.intersection_over_union(current_box[:4], box[:4])  # Calculate the IOU of the two boxes
                 if iou > iou_threshold:
-                    bbox_list_thresholded.pop(i)
+                    bbox_list_thresholded.remove(box)
+
         return bbox_list_new
 
-    def distance(self, centroid1, centroid2):
-        dist = ((centroid1[0] - centroid2[0]) ** 2 + (centroid1[1] - centroid2[1]) ** 2) // 2
-        if dist == 0.:
-            dist = 1
-        dist = 1 / dist
-        return dist
-
-    def reduce(self):
-        clustering = MeanShift(bandwidth=10).fit(self.bboxes)
-        self.bboxes = []
-        _, count = np.unique(clustering.labels_, return_counts=True)
-        for i, bb in enumerate(clustering.cluster_centers_):
-            if count[i] < 3:
-                continue
-
-            bb_x, bb_y = bb
-            bb_x -= 16
-            bb_y -= 16
-            bb_w, bb_h = 32, 32
-            self.bboxes.append((bb_x, bb_y, bb_w, bb_h, 0, 0))
-
-        self.bboxes = np.array(self.bboxes, dtype=int)
+    def distance_euclidian(self, centroid1, centroid2):
+        return ((centroid1[0] - centroid2[0]) ** 2 + (centroid1[1] - centroid2[1]) ** 2) // 2
 
     def take_action(self, action):
 
-        reward = 0.
+        x, y = self.get_current_coord()
+        x += 32
+        y += 32
+
+        if action:
+            self.history.append((x, y, 0., action))
+
+        label_max = 0
+        dist_min = 1000.
+        max_bbox = None
+
+        is_already_marked = False
+        for agent_bb in self.bboxes:
+            abb_x, abb_y, abb_w, abb_h, label, centroid = agent_bb
+            is_already_marked += abb_x <= x - 32 <= abb_x + abb_w and abb_y <= y - 32 <= abb_y + abb_h
+
+        if not is_already_marked:
+            for i, bbox in enumerate(self.objects_coordinates):
+
+                bb_x, bb_y, bb_w, bb_h, label, centroid = bbox
+                in_bbox = bb_x <= x - 32 <= bb_x + bb_w and bb_y <= y - 32 <= bb_y + bb_h
+                dist = self.distance_euclidian(centroid, (x, y))
+
+                if in_bbox and dist < dist_min:
+                    dist_min = dist
+                    label_max = label
+                    max_bbox = (bb_x, bb_y, bb_w, bb_h)
+
+        if action == 1 and label_max == 1:
+            reward = 1.
+        elif action == 0 and label_max == 0:
+            reward = 0.5
+        else:
+            reward = 0.
+
+        # --------------------------------------------------------------------------------------------------------------
+        # CALLING TOD IF TARGET IS DETECTED
+        # --------------------------------------------------------------------------------------------------------------
+        if action and (self.train_tod or self.eval_tod):
+            first_state_tod = self.reload_env_tod((x, y))
+            if self.train_tod:
+                bonus_iou, reward_tod, loss_policy, loss_class, loss_conf = self.tod.fit_one_episode(first_state_tod)
+                self.tod_rewards.append(reward_tod)
+                self.tod_conf_loss.append(loss_conf)
+                self.tod_class_loss.append(loss_class)
+                self.tod_policy_loss.append(loss_policy)
+            else:
+                bonus_iou, _ = self.tod.exploit_one_episode(first_state_tod)
+
+            cv2.rectangle(self.full_img, (self.current_bbox['x'] + 32, self.current_bbox['y'] + 32),
+                          (self.current_bbox['x'] + 32 + self.current_bbox['w'],
+                           self.current_bbox['y'] + 32 + self.current_bbox['h']), [0, 0, 0], -1)
+
+            reward += bonus_iou
+
+            self.bboxes.append((self.current_bbox['x'], self.current_bbox['y'],
+                                self.current_bbox['w'], self.current_bbox['h'],
+                                self.current_bbox['conf'], self.current_bbox['label']))
+
         self.nb_actions_taken += 1
         is_terminal = False
 
         x, y = self.get_current_coord()
-
         x += 32
         y += 32
 
-        for i, bbox in enumerate(self.objects_coordinates):
-            _, _, _, _, _, centroid = bbox
-
-            dist = self.distance(centroid, (x, y))
-
-            if dist > reward:
-                reward = dist
-
-        if action == 1 and reward >= 0.01:
-            reward = 1.
-
-        elif action == 0 and reward <= 0.01:
-            reward = 0.1
-        else:
-            reward = 0.
-
-        if action == 1:
-            #self.full_img = cv2.circle(self.full_img, (x, y), 5, [0., 0., 0.], -1)
-            self.history.append((x, y, reward))
-            if self.train_tod:
-                self.bboxes.append((x, y))
-
         S_prime = self.get_state()
 
-        if self.nb_actions_taken >= 400:
+        if self.nb_actions_taken >= 100:
             is_terminal = True
 
         if self.record:
@@ -253,44 +303,29 @@ class Environment:
 
         return S_prime, reward, is_terminal
 
-    def add_bbox_for_class(self):
-        for i, bbox in enumerate(self.objects_coordinates):
-            x, y, w, h, Y, _ = bbox
-
-            x = int(x + random.randint(-5, 5))
-            y = int(y + random.randint(-5, 5))
-            w = int(w + random.randint(-5, 5))
-            h = int(h + random.randint(-5, 5))
-
-            temp = self.base_img[y: h + y, x: w + x]
-
-            # temp = cv2.copyMakeBorder(temp, 0, pad_w, 0, pad_h, cv2.BORDER_CONSTANT, None, value=0)
-            X = cv2.resize(temp, (ANCHOR_AGENT_RES, ANCHOR_AGENT_RES))
-
-            self.tod.add_to_ds(X, Y)
 
     def get_iou_error(self):
         error = 0.
-        for bbox in self.objects_coordinates:
-            x, y, w, h, _, _ = bbox
 
+        for agent_bbox in self.bboxes:
             max_iou = 0.
-            for agent_bbox in self.bboxes:
+            for bbox in self.objects_coordinates:
+                x, y, w, h, _, _ = bbox
                 iou = self.intersection_over_union((x, y, w, h), agent_bbox)
                 if iou > max_iou:
                     max_iou = iou
 
             error += 1. - max_iou
-        return error / len(self.objects_coordinates)
-
+        return error / len(self.bboxes)
 
     def take_action_tod(self, A, conf, label_pred):
         is_terminal = False
 
         self.nb_actions_taken_tod += 1
-        pad = 2
+        pad = 3
 
-        agent_bbox = self.bboxes[self.index_bb]
+        agent_bbox = (self.current_bbox['x'], self.current_bbox['y'],
+                      self.current_bbox['w'], self.current_bbox['h'])
         old_iou = 0.
         for bbox in self.objects_coordinates:
             x, y, w, h, _, _ = bbox
@@ -300,44 +335,46 @@ class Environment:
                 old_iou = iou
 
         if self.record:
-            self.steps_recorded.append(self.get_tod_visualisation())
             if self.nb_actions_taken_tod == 1:
                 self.iou_base.append(old_iou)
 
         if A == 0:
-            self.bboxes[self.index_bb][2] += pad
+            if self.current_bbox['x'] + self.current_bbox['w'] < 200 - pad:
+                self.current_bbox['w'] += pad
         elif A == 1:
-            self.bboxes[self.index_bb][3] += pad
+            if self.current_bbox['y'] + self.current_bbox['h'] < 200 - pad:
+                self.current_bbox['h'] += pad
         elif A == 2:
-            if self.bboxes[self.index_bb][2] >= 30:
-                self.bboxes[self.index_bb][2] -= pad
+            if self.current_bbox['w'] >= 32:
+                self.current_bbox['w'] -= pad
         elif A == 3:
-            if self.bboxes[self.index_bb][3] >= 30:
-                self.bboxes[self.index_bb][3] -= pad
+            if self.current_bbox['h'] >= 32:
+                self.current_bbox['h'] -= pad
         elif A == 4:
-            if self.bboxes[self.index_bb][0] >= pad:
-                self.bboxes[self.index_bb][0] -= pad
-                self.bboxes[self.index_bb][2] += pad
+            if self.current_bbox['x'] >= pad:
+                self.current_bbox['x'] -= pad
+                self.current_bbox['w'] += pad
         elif A == 5:
-            if self.bboxes[self.index_bb][2] >= 30:
-                self.bboxes[self.index_bb][0] += pad
-                self.bboxes[self.index_bb][2] -= pad
+            if self.current_bbox['x'] + self.current_bbox['w'] < 200 - pad:
+                self.current_bbox['x'] += pad
+                self.current_bbox['w'] -= pad
         elif A == 6:
-            if self.bboxes[self.index_bb][1] >= pad:
-                self.bboxes[self.index_bb][1] -= pad
-                self.bboxes[self.index_bb][3] += pad
+            if self.current_bbox['y'] >= pad:
+                self.current_bbox['y'] -= pad
+                self.current_bbox['h'] += pad
         elif A == 7:
-            if self.bboxes[self.index_bb][3] >= 30:
-                self.bboxes[self.index_bb][1] += pad
-                self.bboxes[self.index_bb][3] -= pad
+            if self.current_bbox['y'] + self.current_bbox['h'] < 200 - pad:
+                self.current_bbox['y'] += pad
+                self.current_bbox['h'] -= pad
 
-        self.bboxes[self.index_bb][4] = int(conf * 100)
-        self.bboxes[self.index_bb][5] = label_pred
-
-        if self.nb_actions_taken_tod >= 50:
+        if self.nb_actions_taken_tod >= 25:
             is_terminal = True
 
-        agent_bbox = self.bboxes[self.index_bb]
+        self.current_bbox['conf'] = conf
+        self.current_bbox['label'] = label_pred
+
+        agent_bbox = (self.current_bbox['x'], self.current_bbox['y'],
+                      self.current_bbox['w'], self.current_bbox['h'])
         new_iou = 0.
         label = 0
         for bbox in self.objects_coordinates:
@@ -348,24 +385,16 @@ class Environment:
                 new_iou = iou
                 label = current_label
 
-        reward = (new_iou - old_iou) * 10.
+        reward = (new_iou - old_iou)
         if reward < 0.:
             reward = 0.
 
         next_state = self.get_tod_state()
 
-        p = random.random()
-        if p > 0.9:
-            Y = None
-            if new_iou >= 0.7:
-                Y = label
-            if new_iou <= 0.:
-                Y = self.nb_classes
-            if Y is not None:
-                self.tod.add_to_ds(next_state, Y)
-
         if self.record:
+
             self.steps_recorded.append(self.get_tod_visualisation())
+
             if is_terminal:
                 self.iou_final.append(new_iou)
                 if new_iou <= 0.:
@@ -376,17 +405,16 @@ class Environment:
                 self.truth_values.append(Y)
                 self.predictions.append(label_pred)
 
-        return next_state, reward, is_terminal
+        if old_iou <= 0.:
+            label = self.nb_classes
 
-    def add_to_history(self, bbox, iou, label):
-        x, y, w, h = bbox
-        self.history.append((x, y, w, h, label, iou))
+        return next_state, reward, is_terminal, old_iou, label
 
     def DOT_history(self):
         history_img = self.base_img.copy()
         for coord in self.history:
-            x, y, dist = coord
-            history_img = cv2.circle(history_img, (x, y), 5, [255., 0., 0.], 2)
+            x, y, dist, label = coord
+            history_img = cv2.circle(history_img, (x - 32, y - 32), 5, self.colors[label], 2)
 
         return history_img
 
@@ -404,17 +432,11 @@ class Environment:
             p1 = (int(x), int(y))
             p2 = (int(x + w), int(y + h))
             history_img = cv2.rectangle(history_img, p1, p2, self.colors[label], 2)
-            history_img = cv2.putText(history_img, str(label) + " " + str(conf / 100.), (int(x + w / 2), int(y + 10)),
+            history_img = cv2.putText(history_img,
+                                      str(label) + ' ' + str(round(conf, 2)),
+                                      (int(x + 5), int(y + 10)),
                                       cv2.FONT_HERSHEY_SIMPLEX,
                                       0.3,
                                       self.colors[label], 1, cv2.LINE_AA)
 
         return history_img
-
-    if __name__ == '__main__':
-        # Pointing out a wrong IoU implementation in https://www.pyimagesearch.com/2016/11/07/intersection-over-union-iou-for-object-detection/
-        boxA = [0., 0., 10., 10.]
-        boxB = [9., 9., 11., 11.]
-
-        correct = intersection_over_union(boxA, boxB)
-        print(correct)

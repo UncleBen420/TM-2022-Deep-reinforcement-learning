@@ -2,6 +2,8 @@ import numpy as np
 import torch
 from torch import nn
 from torch.optim.lr_scheduler import StepLR
+from torchvision import transforms
+
 
 # https://github.com/schneimo/ddpg-pytorch/blob/master
 # https://arxiv.org/pdf/1711.08946.pdf
@@ -30,30 +32,39 @@ class PolicyNet(nn.Module):
             torch.nn.BatchNorm2d(32),
             torch.nn.Conv2d(32, 64, kernel_size=3, stride=2),
             torch.nn.ReLU(),
-            #torch.nn.BatchNorm2d(64),
-            torch.nn.Dropout(0.1),
-            torch.nn.Flatten(),
+            torch.nn.BatchNorm2d(64),
+            torch.nn.Conv2d(64, 128, kernel_size=3),
+            torch.nn.ReLU(),
+            torch.nn.Flatten()
+            #torch.nn.Dropout(0.1),
         )
 
         self.policy_head = torch.nn.Sequential(
-            torch.nn.Linear(576, 250),
+            torch.nn.Linear(128, 32),
             torch.nn.ReLU(),
-            torch.nn.Linear(250, 100),
+            torch.nn.LayerNorm(32),
+            torch.nn.Linear(32, 16),
             torch.nn.ReLU(),
-            torch.nn.Linear(100, 32),
-            torch.nn.ReLU(),
-            torch.nn.Linear(32, self.nb_actions),
+            torch.nn.Linear(16, self.nb_actions),
             torch.nn.Softmax(dim=1)
         )
 
-        self.classification_head = torch.nn.Sequential(
-            torch.nn.Linear(576, 250),
+        self.conf_head = torch.nn.Sequential(
+            torch.nn.Linear(128, 32),
             torch.nn.ReLU(),
-            torch.nn.Linear(250, 100),
+            torch.nn.LayerNorm(32),
+            torch.nn.Linear(32, 16),
             torch.nn.ReLU(),
-            torch.nn.Linear(100, 32),
+            torch.nn.Linear(16, 1)
+        )
+
+        self.class_head = torch.nn.Sequential(
+            torch.nn.Linear(128, 32),
             torch.nn.ReLU(),
-            torch.nn.Linear(32, classes)
+            torch.nn.LayerNorm(32),
+            torch.nn.Linear(32, 16),
+            torch.nn.ReLU(),
+            torch.nn.Linear(16, classes)
         )
 
         self.backbone.to(self.device)
@@ -64,8 +75,7 @@ class PolicyNet(nn.Module):
     def get_class(self, class_preds):
         proba = torch.nn.functional.softmax(class_preds, dim=1).squeeze()
         pred = torch.argmax(proba).item()
-        conf = proba[pred]
-        return pred, conf.item()
+        return pred
 
     def init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -78,15 +88,17 @@ class PolicyNet(nn.Module):
     def forward(self, state):
         x = self.backbone(state)
         preds = self.policy_head(x)
-        class_preds = self.classification_head(x)
-        return preds, class_preds
+        class_preds = self.class_head(x)
+        conf = self.conf_head(x)
+        return preds, conf, class_preds
 
 class TOD:
 
-    def __init__(self, environment, learning_rate=0.0001, gamma=0.1,
+    def __init__(self, environment, learning_rate=0.0005, gamma=0.1,
                  entropy_coef=0.01, beta_coef=0.01,
-                 lr_gamma=0.8, batch_size=64, pa_dataset_size=1024, pa_batch_size=100, img_res=64):
+                 lr_gamma=0.9, batch_size=64, pa_dataset_size=1000, pa_batch_size=10, img_res=64):
 
+        self.IOU_pa_batch = None
         self.gamma = gamma
         self.environment = environment
         self.environment.tod = self
@@ -101,68 +113,14 @@ class TOD:
         self.batch_size = batch_size
         self.pa_dataset_size = pa_dataset_size
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=learning_rate)
+        self.scheduler = StepLR(self.optimizer, step_size=100, gamma=lr_gamma)
 
         self.pa_batch_size = pa_batch_size
 
         # Past Actions Buffer
         self.S_pa_batch = None
         self.A_pa_batch = None
-        self.TDE_pa_batch = None
         self.G_pa_batch = None
-
-        self.X = None
-        self.Y = None
-
-    def add_to_ds(self, X, Y):
-
-        if np.argmax(self.nb_per_class) == Y and np.std(self.nb_per_class) > 5.:
-            return
-
-        self.nb_per_class[Y] += 1
-
-        X = torch.from_numpy(X).float()
-        X = X.unsqueeze(0).to(self.policy.device)
-        X = self.policy.prepare_data(X)
-
-        Y = torch.LongTensor([Y]).to(self.policy.device)
-
-        if self.X is None:
-            self.X = X
-            self.Y = Y
-        else:
-            self.X = torch.cat((self.X, X), 0)
-            self.Y = torch.cat((self.Y, Y), 0)
-
-
-    def trim_ds(self):
-        if self.X is not None and len(self.X) > self.pa_dataset_size:
-            # shuffling the batch
-            shuffle_index = torch.randperm(len(self.X))
-            X = self.X[shuffle_index]
-            Y = self.Y[shuffle_index]
-
-            # dataset clipping
-            max_size = min(self.pa_dataset_size, len(self.X))
-            surplus = len(self.X) - max_size
-            _, self.X = torch.split(self.X, [surplus, max_size])
-            released, self.Y = torch.split(self.Y, [surplus, max_size])
-
-            _, count = released.unique(return_counts=True)
-            for i in range(len(count)):
-                self.nb_per_class[i] -= count[i].item()
-
-    def train_classification(self):
-        if len(self.X) < self.batch_size:
-            return 0
-        self.optimizer.zero_grad()
-
-        _, class_preds = self.policy(self.X)
-        loss = torch.nn.functional.cross_entropy(class_preds, self.Y)
-        loss.backward()
-        self.optimizer.step()
-        print(loss.item())
-
-        return loss.item()
 
     def save(self, file):
         torch.save(self.policy.state_dict(), file)
@@ -177,14 +135,11 @@ class TOD:
 
     def update_policy(self, batch):
 
-        sum_loss = 0.
-        counter = 0.
-
-        S, A, G, TDE = batch
+        S, A, G, IOU, LABEL = batch
 
         # Calculate loss
         self.optimizer.zero_grad()
-        action_probs, _ = self.policy(S)
+        action_probs, conf, class_preds = self.policy(S)
 
         log_probs = torch.log(action_probs)
         log_probs = torch.nan_to_num(log_probs)
@@ -193,11 +148,18 @@ class TOD:
 
         policy_loss = - (G.unsqueeze(1) * selected_log_probs).mean()
         loss = policy_loss
-        loss.backward()
+        loss.backward(retain_graph=True)
+
+        conf_loss = torch.nn.functional.mse_loss(conf.squeeze(), IOU.squeeze())
+        conf_loss.backward(retain_graph=True)
+
+        class_loss = torch.nn.functional.cross_entropy(class_preds.squeeze(), LABEL.squeeze())
+        class_loss.backward()
 
         self.optimizer.step()
+        self.scheduler.step()
 
-        return loss.item(), 0
+        return loss.item(), conf_loss.item(), class_loss.item()
 
     def fit_one_episode(self, S):
 
@@ -207,7 +169,8 @@ class TOD:
         S_batch = []
         R_batch = []
         A_batch = []
-        V_batch = []
+        IOU_batch = []
+        LABEL_batch = []
 
         # ------------------------------------------------------------------------------------------------------
         # EPISODE REALISATION
@@ -224,45 +187,41 @@ class TOD:
             S = S.unsqueeze(0).to(self.policy.device)
             S = self.policy.prepare_data(S)
             with torch.no_grad():
-                action_probs, class_preds = self.policy(S)
+                action_probs, conf, class_preds = self.policy(S)
                 #class_preds = self.class_net(S)
 
                 action_probs = action_probs.detach().cpu().numpy()[0]
                 A = self.policy.follow_policy(action_probs)
 
-                label, conf = self.policy.get_class(class_preds)
+                label = self.policy.get_class(class_preds)
 
-            S_prime, R, is_terminal = self.environment.take_action_tod(A, conf, label)
+            S_prime, R, is_terminal, iou, label = self.environment.take_action_tod(A, conf.item(), label)
 
-            sum_v += conf
+            sum_v += 0
 
             S_batch.append(S)
             A_batch.append(A)
-            V_batch.append(conf)
             R_batch.append(R)
+            IOU_batch.append(iou)
+            LABEL_batch.append(label)
             sum_reward += R
 
             S = S_prime
 
             if is_terminal:
                 break
-        TDE_batch = R_batch.copy()
+
         for i in reversed(range(1, len(R_batch))):
             R_batch[i - 1] += self.gamma * R_batch[i]
-            TDE_batch[i - 1] += self.gamma * R_batch[i]
-            TDE_batch[i] - V_batch[i]
 
         # ------------------------------------------------------------------------------------------------------
         # BATCH PREPARATION
         # ------------------------------------------------------------------------------------------------------
         S_batch = torch.concat(S_batch).to(self.policy.device)
         A_batch = torch.LongTensor(A_batch).to(self.policy.device)
-        TDE_batch = torch.FloatTensor(TDE_batch).to(self.policy.device)
         G_batch = torch.FloatTensor(R_batch).to(self.policy.device)
-        #tde_min = torch.min(TDE_batch)
-        #tde_max = torch.max(TDE_batch)
-        #TDE_batch = (TDE_batch - tde_min) / (tde_max - tde_min)
-        TDE_batch = torch.nan_to_num(TDE_batch)
+        IOU_batch = torch.FloatTensor(IOU_batch).to(self.policy.device)
+        LABEL_batch = torch.LongTensor(LABEL_batch).to(self.policy.device)
 
 
         # ------------------------------------------------------------------------------------------------------
@@ -274,9 +233,10 @@ class TOD:
             batch = (torch.cat((self.S_pa_batch[0:self.pa_batch_size], S_batch), 0),
                      torch.cat((self.A_pa_batch[0:self.pa_batch_size], A_batch), 0),
                      torch.cat((self.G_pa_batch[0:self.pa_batch_size], G_batch), 0),
-                     torch.cat((self.TDE_pa_batch[0:self.pa_batch_size], TDE_batch), 0))
+                     torch.cat((self.IOU_pa_batch[0:self.pa_batch_size], IOU_batch), 0),
+                     torch.cat((self.LABEL_pa_batch[0:self.pa_batch_size], LABEL_batch), 0),)
         else:
-            batch = (S_batch, A_batch, G_batch, TDE_batch)
+            batch = (S_batch, A_batch, G_batch, IOU_batch, LABEL_batch)
 
         # Add some experiences to the buffer with respect of TD error
         nb_new_memories = min(5, counter)
@@ -289,38 +249,39 @@ class TOD:
             self.A_pa_batch = A_batch[idx]
             self.S_pa_batch = S_batch[idx]
             self.G_pa_batch = G_batch[idx]
-            self.TDE_pa_batch = TDE_batch[idx]
+            self.IOU_pa_batch = IOU_batch[idx]
+            self.LABEL_pa_batch = LABEL_batch[idx]
         else:
             self.A_pa_batch = torch.cat((self.A_pa_batch, A_batch[idx]), 0)
             self.S_pa_batch = torch.cat((self.S_pa_batch, S_batch[idx]), 0)
             self.G_pa_batch = torch.cat((self.G_pa_batch, G_batch[idx]), 0)
-            self.TDE_pa_batch = torch.cat((self.TDE_pa_batch, TDE_batch[idx]), 0)
+            self.IOU_pa_batch = torch.cat((self.IOU_pa_batch, IOU_batch[idx]), 0)
+            self.LABEL_pa_batch = torch.cat((self.LABEL_pa_batch, LABEL_batch[idx]), 0)
 
         # clip the buffer if it's to big
         if len(self.A_pa_batch) > self.pa_dataset_size:
             # shuffling the batch
+
             shuffle_index = torch.randperm(len(self.A_pa_batch))
             self.A_pa_batch = self.A_pa_batch[shuffle_index]
             self.G_pa_batch = self.G_pa_batch[shuffle_index]
             self.S_pa_batch = self.S_pa_batch[shuffle_index]
-            self.TDE_pa_batch = self.TDE_pa_batch[shuffle_index]
+            self.IOU_pa_batch = self.IOU_pa_batch[shuffle_index]
+            self.LABEL_pa_batch = self.LABEL_pa_batch[shuffle_index]
 
             # dataset clipping
             surplus = len(self.A_pa_batch) - self.pa_dataset_size
             _, self.A_pa_batch = torch.split(self.A_pa_batch, [surplus, self.pa_dataset_size])
             _, self.G_pa_batch = torch.split(self.G_pa_batch, [surplus, self.pa_dataset_size])
             _, self.S_pa_batch = torch.split(self.S_pa_batch, [surplus, self.pa_dataset_size])
-            _, self.TDE_pa_batch = torch.split(self.TDE_pa_batch, [surplus, self.pa_dataset_size])
+            _, self.IOU_pa_batch = torch.split(self.IOU_pa_batch, [surplus, self.pa_dataset_size])
+            _, self.LABEL_pa_batch = torch.split(self.LABEL_pa_batch, [surplus, self.pa_dataset_size])
 
         # ------------------------------------------------------------------------------------------------------
         # MODEL OPTIMISATION
         # ------------------------------------------------------------------------------------------------------
-        if len(self.A_pa_batch) < self.batch_size:
-            loss = 0
-        else:
-            loss, value_loss = self.update_policy(batch)
-
-        return loss, sum_reward
+        loss_tod, iou_loss, class_loss = self.update_policy(batch)
+        return iou, sum_reward, loss_tod, class_loss, iou_loss
 
     def exploit_one_episode(self, S):
         sum_reward = 0
@@ -332,19 +293,20 @@ class TOD:
             S = self.policy.prepare_data(S)
 
             with torch.no_grad():
-                action_probs, class_preds = self.policy(S)
+                action_probs, conf, class_preds = self.policy(S)
                 #class_preds = self.class_net(S)
+                conf = conf.item()
 
                 action_probs = action_probs.detach().cpu().numpy()[0]
                 A = self.policy.follow_policy(action_probs)
 
-                label, conf = self.policy.get_class(class_preds)
+                label = self.policy.get_class(class_preds)
 
-            S_prime, R, is_terminal = self.environment.take_action_tod(A, conf, label)
+            S_prime, R, is_terminal, iou, label = self.environment.take_action_tod(A, conf, label)
 
             S = S_prime
             sum_reward += R
             if is_terminal:
                 break
 
-        return sum_reward
+        return iou, sum_reward

@@ -14,21 +14,12 @@ from components.tod import TOD
 
 from sklearn.metrics import confusion_matrix
 from sklearn.metrics import ConfusionMatrixDisplay
+from datetime import date
 
-
-def describe(arr):
-    print("Measures of Central Tendency")
-    print("Mean =", np.mean(arr))
-    print("Median =", np.median(arr))
-    print("Measures of Dispersion")
-    print("Minimum =", np.min(arr))
-    print("Maximum =", np.max(arr))
-    print("Variance =", np.var(arr))
-    print("Standard Deviation =", np.std(arr))
 
 def create_video(frames, filename):
     fourcc = cv2.VideoWriter_fourcc(*'MP42')
-    video = cv2.VideoWriter(filename, fourcc, float(30), (264, 264))
+    video = cv2.VideoWriter(filename, fourcc, float(10), (200, 200))
 
     for frame in frames:
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
@@ -46,50 +37,7 @@ class Trainer:
         self.agent = DOT(self.env)
         self.agent_tod = TOD(self.env)
 
-    def train_tod(self):
-        rewards = []
-        losses = []
-        nb_action = []
-        self.env.reduce()
-
-        with tqdm(range(len(self.env.bboxes)), unit="episode") as episode:
-            for i in episode:
-
-                first_state = self.env.reload_env_tod(i)
-                loss, sum_reward, = self.agent_tod.fit_one_episode(first_state)
-
-                rewards.append(sum_reward)
-                losses.append(loss)
-
-                episode.set_postfix(rewards=sum_reward, loss=loss)
-        loss_class = self.agent_tod.train_classification()
-        self.agent_tod.trim_ds()
-
-        return np.mean(losses), np.mean(rewards), loss_class
-
-    def eval_tod(self):
-        rewards = []
-        losses = []
-        nb_action = []
-        self.env.reduce()
-        frames = []
-
-        with tqdm(range(len(self.env.bboxes)), unit="episode") as episode:
-            for i in episode:
-                first_state = self.env.reload_env_tod(i)
-                sum_reward = self.agent_tod.exploit_one_episode(first_state)
-
-                rewards.append(sum_reward)
-
-                episode.set_postfix(rewards=sum_reward)
-                frames.extend(self.env.steps_recorded)
-
-            plt.imshow(self.env.TOD_history())
-            plt.show()
-
-            return frames
-
-    def train(self, nb_episodes, train_path):
+    def train(self, nb_episodes, train_path, plot_metric=False):
 
         # --------------------------------------------------------------------------------------------------------------
         # LEARNING PREPARATION
@@ -107,16 +55,16 @@ class Trainer:
         # for plotting
         losses = []
         rewards = []
-        vs = []
-        losses_tod = []
-        rewards_tod = []
-        class_losses = []
 
         # --------------------------------------------------------------------------------------------------------------
         # LEARNING STEPS
         # --------------------------------------------------------------------------------------------------------------
         with tqdm(range(nb_episodes), unit="episode") as episode:
             for i in episode:
+
+                if i > 10 and i % 10 == 0:
+                    self.env.train_tod = True
+
                 # random image selection in the training set
                 while True:
                     index = random.randint(0, len(self.img_list) - 1)
@@ -125,11 +73,11 @@ class Trainer:
                     if os.path.exists(bb):
                         break
 
-                train_tod = False
-                if i > 10 and i % 5 == 0:
-                    train_tod = True
+                if i > 900 and i % 10 == 0:
+                    self.env.train_tod = True
+                    plt.imshow(self.env.TOD_history())
+                    plt.show()
 
-                self.env.train_tod = train_tod
                 first_state = self.env.reload_env(img, bb)
                 loss, sum_reward, _, _ = self.agent.fit_one_episode(first_state)
 
@@ -137,30 +85,29 @@ class Trainer:
                 losses.append(loss)
                 episode.set_postfix(rewards=sum_reward, loss=loss)
 
-                if i > 10 and i % 5 == 0:
-                    self.env.add_bbox_for_class()
-                    loss_tod, reward_tod, loss_class = self.train_tod()
-                    losses_tod.append(loss_tod)
-                    rewards_tod.append(reward_tod)
-                    class_losses.append(loss_class)
-
         # --------------------------------------------------------------------------------------------------------------
         # PLOT AND WEIGHTS SAVING
         # --------------------------------------------------------------------------------------------------------------
+        today = date.today()
+        self.agent.save(str(today) +"-DOT-weights.pt")
+        self.agent_tod.save(str(today) + "-TOD-weights.pt")
 
-        plt.plot(rewards)
-        plt.show()
-        plt.plot(losses)
-        plt.show()
-        plt.plot(class_losses)
-        plt.show()
-        plt.plot(rewards_tod)
-        plt.show()
-        plt.plot(losses_tod)
-        plt.show()
+        if plot_metric:
+            plt.plot(rewards)
+            plt.show()
+            plt.plot(losses)
+            plt.show()
+            plt.plot(self.env.tod_rewards)
+            plt.show()
+            plt.plot(self.env.tod_policy_loss)
+            plt.show()
+            plt.plot(self.env.tod_class_loss)
+            plt.show()
+            plt.plot(self.env.tod_conf_loss)
+            plt.show()
 
-    def evaluate(self, eval_path, result_path='.', plot_metric=False):
-
+    def evaluate(self, eval_path, plot_metric=False):
+        self.env.eval_tod = True
         self.img_path = os.path.join(eval_path, "img")
         self.label_path = os.path.join(eval_path, "bboxes")
 
@@ -169,11 +116,6 @@ class Trainer:
 
         # for plotting
         rewards = []
-        vs = []
-        nb_action = []
-        nb_conv_action = []
-        precision = []
-        pertinence = []
 
         # --------------------------------------------------------------------------------------------------------------
         # EVALUATION STEPS
@@ -188,37 +130,44 @@ class Trainer:
                 if not os.path.exists(bb):
                     continue
 
-                self.env.train_tod = True
                 first_state = self.env.reload_env(img, bb)
                 sum_reward, sum_v = self.agent.exploit_one_episode(first_state)
                 st = self.env.nb_actions_taken
                 rewards.append(sum_reward)
-                nb_action.append(st)
-                plt.imshow(self.env.DOT_history())
-                plt.show()
-
-                episode.set_postfix(rewards=sum_reward, nb_action=st, V=sum_v / st)
-                frames = self.env.steps_recorded
-                frames.extend(self.eval_tod())
-                frames.extend([self.env.TOD_history()])
 
                 iou_error += self.env.get_iou_error()
 
-                #create_video(frames, img_filename + ".avi")
-                #imageio.mimsave(img_filename + ".gif", frames, duration=0.01)
+                episode.set_postfix(rewards=sum_reward, nb_action=st, V=sum_v / st)
+
+                if plot_metric:
+                    frames = self.env.steps_recorded
+                    frames.extend(self.env.TOD_history())
+                    create_video(frames, img_filename + ".avi")
+
         iou_error /= len(self.img_list)
 
         # --------------------------------------------------------------------------------------------------------------
         # PLOT
         # --------------------------------------------------------------------------------------------------------------
+        if plot_metric:
+            plt.scatter(self.env.iou_base, self.env.iou_final)
+            plt.xlim(0, 1)
+            plt.ylim(0, 1)
+            plt.show()
+            final_iou = np.array(self.env.iou_final)
+            base_iou = np.array(self.env.iou_base)
+            index = np.argsort(base_iou)
+            final_iou = final_iou[index]
+            base_iou = base_iou[index]
+            down = np.where(base_iou >= final_iou)[0]
+            up = np.where(base_iou < final_iou)[0]
+            plt.bar(up * 3, final_iou[up] - base_iou[up], 3, bottom=base_iou[up], color="green")
+            plt.bar(down * 3, base_iou[down] - final_iou[down], 3, final_iou[down], color="red")
+            plt.show()
 
-        plt.scatter(self.env.iou_base, self.env.iou_final)
-        plt.xlim(0, 1)
-        plt.ylim(0, 1)
-        plt.show()
-
-        cm = confusion_matrix(self.env.truth_values, self.env.predictions)
-        cm_display = ConfusionMatrixDisplay(cm).plot()
-        plt.show()
-
-        print(iou_error)
+            cm = confusion_matrix(self.env.truth_values, self.env.predictions)
+            cm_display = ConfusionMatrixDisplay(cm).plot()
+            plt.show()
+            class_accurracy = cm.diagonal() / cm.sum(axis=1)
+            print(class_accurracy)
+            print(iou_error)
