@@ -2,15 +2,6 @@ import numpy as np
 import torch
 from torch import nn
 from torch.optim.lr_scheduler import StepLR
-from torchvision import transforms
-
-
-# https://github.com/schneimo/ddpg-pytorch/blob/master
-# https://arxiv.org/pdf/1711.08946.pdf
-
-# From OpenAI Baselines:
-# https://github.com/openai/baselines/blob/master/baselines/ddpg/noise.py
-
 
 class PolicyNet(nn.Module):
     def __init__(self, nb_actions=8, classes=5, n_kernels=64):
@@ -26,7 +17,6 @@ class PolicyNet(nn.Module):
             torch.nn.Conv2d(3, 16, kernel_size=7, stride=3),
             torch.nn.ReLU(),
             torch.nn.BatchNorm2d(16),
-            #torch.nn.Dropout(0.1),
             torch.nn.Conv2d(16, 32, kernel_size=5, stride=2),
             torch.nn.ReLU(),
             torch.nn.BatchNorm2d(32),
@@ -36,7 +26,6 @@ class PolicyNet(nn.Module):
             torch.nn.Conv2d(64, 128, kernel_size=3),
             torch.nn.ReLU(),
             torch.nn.Flatten()
-            #torch.nn.Dropout(0.1),
         )
 
         self.policy_head = torch.nn.Sequential(
@@ -68,6 +57,13 @@ class PolicyNet(nn.Module):
         )
 
         self.backbone.to(self.device)
+        self.policy_head.to(self.device)
+        self.class_head.to(self.device)
+        self.conf_head.to(self.device)
+
+        self.policy_head.apply(self.init_weights)
+        self.class_head.apply(self.init_weights)
+        self.conf_head.apply(self.init_weights)
 
     def follow_policy(self, probs):
         return np.random.choice(self.action_space, p=probs)
@@ -95,22 +91,16 @@ class PolicyNet(nn.Module):
 class TOD:
 
     def __init__(self, environment, learning_rate=0.0005, gamma=0.1,
-                 entropy_coef=0.01, beta_coef=0.01,
-                 lr_gamma=0.9, batch_size=64, pa_dataset_size=1000, pa_batch_size=10, img_res=64):
+                 lr_gamma=0.9, pa_dataset_size=1000, pa_batch_size=10, ):
 
         self.IOU_pa_batch = None
         self.gamma = gamma
         self.environment = environment
         self.environment.tod = self
 
-        self.beta_coef = beta_coef
-        self.entropy_coef = entropy_coef
-        self.min_r = 0
-        self.max_r = 1
         self.policy = PolicyNet()
         self.nb_per_class = np.zeros(self.policy.classes)
 
-        self.batch_size = batch_size
         self.pa_dataset_size = pa_dataset_size
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=learning_rate)
         self.scheduler = StepLR(self.optimizer, step_size=100, gamma=lr_gamma)
@@ -176,7 +166,6 @@ class TOD:
         # EPISODE REALISATION
         # ------------------------------------------------------------------------------------------------------
         counter = 0
-        sum_v = 0
         sum_reward = 0
 
         counter += 1
@@ -196,8 +185,6 @@ class TOD:
                 label = self.policy.get_class(class_preds)
 
             S_prime, R, is_terminal, iou, label = self.environment.take_action_tod(A, conf.item(), label)
-
-            sum_v += 0
 
             S_batch.append(S)
             A_batch.append(A)
@@ -242,8 +229,6 @@ class TOD:
         nb_new_memories = min(5, counter)
 
         idx = torch.randperm(len(A_batch))[:nb_new_memories]
-
-        #idx = torch.multinomial(TDE_batch, nb_new_memories, replacement=True)
 
         if self.A_pa_batch is None:
             self.A_pa_batch = A_batch[idx]

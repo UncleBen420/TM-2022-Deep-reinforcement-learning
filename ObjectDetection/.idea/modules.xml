@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/../ObjectDetection/.idea/tod.iml" filepath="$PROJECT_DIR$/../ObjectDetection/.idea/tod.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/tod.iml" filepath="$PROJECT_DIR$/.idea/tod.iml" />
     </modules>
   </component>
 </project>

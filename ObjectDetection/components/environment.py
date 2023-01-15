@@ -1,34 +1,13 @@
 """
 This file contain the implementation of the real environment.
 """
-import math
-import os
-import random
+
 import re
 import cv2
-import imageio
 import numpy as np
-from sklearn.cluster import MeanShift
-from skimage.feature import hog
-from PIL import Image
-from sklearn.metrics.pairwise import euclidean_distances
-
-import gc
-from matplotlib import pyplot as plt
 
 TASK_MODEL_RES = 200
 ANCHOR_AGENT_RES = 64
-
-
-def check_cuda():
-    """
-    check if opencv can use cuda
-    :return: return True if opencv can detect cuda. False otherwise.
-    """
-    cv_info = [re.sub('\s+', ' ', ci.strip()) for ci in cv2.getBuildInformation().strip().split('\n')
-               if len(ci) > 0 and re.search(r'(nvidia*:?)|(cuda*:)|(cudnn*:)', ci.lower()) is not None]
-    return len(cv_info) > 0
-
 
 class Environment:
     """
@@ -37,23 +16,15 @@ class Environment:
     """
 
     def __init__(self, train_tod=False, record=False):
+        self.bboxes = None
+        self.nb_actions_taken_tod = None
         self.current_bbox = None
         self.history = None
-        self.min_res = None
         self.min_zoom_action = None
         self.objects_coordinates = None
-        self.nb_max_conv_action = None
         self.full_img = None
-        self.dim = None
-        self.pq = None
-        self.sub_images_queue = None
-        self.current_node = None
-        self.Queue = None
-        self.conventional_policy_nb_step = None
         self.base_img = None
         self.nb_actions_taken = 0
-        self.action_space = 10
-        self.cv_cuda = check_cuda()
         self.difficulty = 0.
         self.train_tod = train_tod
         self.tod = None
@@ -90,11 +61,8 @@ class Environment:
         self.prepare_img(img)
         self.prepare_coordinates(bb)
         self.steps_recorded = []
-        # self.full_img, self.objects_coordinates = self.transform(self.full_img, self.objects_coordinates)
-        self.heat_map = np.zeros((TASK_MODEL_RES, TASK_MODEL_RES))
 
         self.bboxes = []
-
 
         self.nb_actions_taken = 0
         return self.get_state()
@@ -115,12 +83,12 @@ class Environment:
             bb_y = 168
 
         self.current_bbox = {
-            'x':bb_x,
-            'y':bb_y,
-            'w':bb_w,
-            'h':bb_h,
-            'conf':0.,
-            'label':0.
+            'x': bb_x,
+            'y': bb_y,
+            'w': bb_w,
+            'h': bb_h,
+            'conf': 0.,
+            'label': 0.
         }
 
         self.nb_actions_taken_tod = 0
@@ -150,7 +118,6 @@ class Environment:
 
         temp = cv2.resize(temp, (ANCHOR_AGENT_RES, ANCHOR_AGENT_RES)) / 255.
         return temp
-        # return np.squeeze(self.full_img) / 255.
 
     def get_tod_state(self):
         temp = self.base_img[self.current_bbox['y']: self.current_bbox['y'] + self.current_bbox['h'],

@@ -5,15 +5,13 @@ from torch.optim.lr_scheduler import StepLR
 
 
 class PolicyNet(nn.Module):
-    def __init__(self, img_res=200, actions=2):
+    def __init__(self, actions=2):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         self.action_space = np.arange(actions)
         self.nb_actions = actions
-
-        self.img_res = img_res
 
         self.backbone = torch.nn.Sequential(
             torch.nn.Conv2d(3, 16, kernel_size=7, stride=3),
@@ -47,7 +45,6 @@ class PolicyNet(nn.Module):
 
         self.middle.apply(self.init_weights)
 
-
     def follow_policy(self, probs):
         return np.random.choice(self.action_space, p=probs)
 
@@ -68,22 +65,15 @@ class PolicyNet(nn.Module):
 class DOT:
 
     def __init__(self, environment, learning_rate=0.0005, gamma=0.05,
-                 entropy_coef=0.1, beta_coef=0.1,
-                 lr_gamma=0.7, batch_size=64, pa_dataset_size=256, pa_batch_size=50, img_res=64):
+                lr_gamma=0.7, pa_dataset_size=256, pa_batch_size=50):
 
         self.LABEL_pa_batch = None
         self.gamma = gamma
         self.environment = environment
         self.environment.agent = self
 
-        self.beta_coef = beta_coef
-        self.entropy_coef = entropy_coef
-        self.min_r = 0
-        self.max_r = 1
+        self.policy = PolicyNet()
 
-        self.policy = PolicyNet(img_res=img_res)
-
-        self.batch_size = batch_size
         self.pa_dataset_size = pa_dataset_size
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=learning_rate)
 
@@ -201,8 +191,6 @@ class DOT:
         nb_new_memories = min(10, counter)
 
         idx = torch.randperm(len(A_batch))[:nb_new_memories]
-
-        #idx = torch.multinomial(TDE_batch, nb_new_memories, replacement=True)
 
         if self.A_pa_batch is None:
             self.A_pa_batch = A_batch[idx]

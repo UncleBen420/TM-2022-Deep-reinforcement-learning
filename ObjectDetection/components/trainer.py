@@ -1,25 +1,22 @@
-import gc
 import os
 import random
-
 import cv2
-import imageio
 import numpy as np
 from matplotlib import pyplot as plt
 from tqdm import tqdm
-
 from components.dot import DOT
 from components.environment import Environment
 from components.tod import TOD
-
+from sklearn.metrics import accuracy_score
 from sklearn.metrics import confusion_matrix
 from sklearn.metrics import ConfusionMatrixDisplay
 from datetime import date
 
+MODEL_RES = 200
 
 def create_video(frames, filename):
     fourcc = cv2.VideoWriter_fourcc(*'MP42')
-    video = cv2.VideoWriter(filename, fourcc, float(10), (200, 200))
+    video = cv2.VideoWriter(filename, fourcc, float(10), (MODEL_RES, MODEL_RES))
 
     for frame in frames:
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
@@ -28,14 +25,14 @@ def create_video(frames, filename):
 
 
 class Trainer:
-    def __init__(self):
+    def __init__(self, learning_rate=0.0005, gamma=0.1, lr_gamma=0.8):
         self.label_path = None
         self.img_path = None
         self.label_list = None
         self.img_list = None
         self.env = Environment()
-        self.agent = DOT(self.env)
-        self.agent_tod = TOD(self.env)
+        self.agent = DOT(self.env, learning_rate, gamma, lr_gamma)
+        self.agent_tod = TOD(self.env, learning_rate, gamma, lr_gamma)
 
     def train(self, nb_episodes, train_path, plot_metric=False):
 
@@ -168,6 +165,7 @@ class Trainer:
             cm = confusion_matrix(self.env.truth_values, self.env.predictions)
             cm_display = ConfusionMatrixDisplay(cm).plot()
             plt.show()
-            class_accurracy = cm.diagonal() / cm.sum(axis=1)
-            print(class_accurracy)
-            print(iou_error)
+            class_accuracy = cm.diagonal() / cm.sum(axis=1)
+            print("Accuracy by class: {0}".format(class_accuracy))
+            print("IOU error: {0}".format(iou_error))
+            print("Total accuracy {0}".format(accuracy_score(self.env.truth_values, self.env.predictions)))
