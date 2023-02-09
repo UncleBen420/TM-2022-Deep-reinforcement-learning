@@ -231,7 +231,6 @@ class DummyEnv:
         pad = self.model_resolution << (self.z - 1)
         return math.sqrt((self.x * pad - self.charlie_x) ** 2 + (self.y * pad - self.charlie_y) ** 2)
 
-
     def take_action(self, action):
         """
         This method allow the agent to take an action over the environment.
@@ -287,9 +286,9 @@ class DummyEnv:
             self.nb_mark += 1
             if should_have_mark:
                 is_terminal = True
-                reward = 100
+                reward = 10
             else:
-                reward = -10
+                reward = -1
 
         if self.deep:
             S = self.get_current_state_deep()

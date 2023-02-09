@@ -1,8 +1,7 @@
 """
 The goal of this program is to compare deep Rl algorithme with RL algorithms.
 """
-
-
+import imageio
 import numpy as np
 from matplotlib import pyplot as plt
 
@@ -12,45 +11,76 @@ from Environment import Agent
 from Environment.GridWorld import Board
 from TemporalDifference.TD import QLearning
 
+def make_gif_trajectory(environment, trajectory, name):
+    """
+    This function allow the user to create a gif of all the moves the
+    agent has made along the episodes
+    :param environment: the environment on which the agent evolve
+    :param trajectory: the trajectory that the agent has take
+    :param name: the name of the gif file
+    """
+    frames = []
+    for t in trajectory:
+        frames.append(environment.render_board_img(t))
+    imageio.mimsave(name, frames, duration=0.05)
+
+
 if __name__ == '__main__':
     BOARD = Board(nb_trap=30, size=10)
     print(BOARD.render_board())
 
-    FIGURE, AXIS = plt.subplots(nrows=3, ncols=1)
+    FIGURE, AXIS = plt.subplots(nrows=2, ncols=1)
     FIGURE.suptitle("Deep algorithms comparison")
     FIGURE.tight_layout(h_pad=3, w_pad=3)
 
-    DQL = DQLearning(BOARD, episodes=1000)
-    REINFORCE = Reinforce(BOARD, BOARD.size * BOARD.size, episodes=1000)
-    AGENT_QLE = QLearning(BOARD, Agent.E_Greedy(0.05), 0.1, 0.1, 1000, 1000)
+    DQL = DQLearning(BOARD, alpha=0.0001, gamma=0.3, episodes=2000, patience=100)
+    REINFORCE = Reinforce(BOARD, BOARD.size * BOARD.size, learning_rate=0.0001, episodes=1000, patience=100, gamma=0.3)
+    AGENT_QLE = QLearning(BOARD, Agent.E_Greedy(0.3), 0.3, 0.3, 1000, 100)
 
-    V, REWARDS = AGENT_QLE.fit(True)
-    MEAN_V = np.mean(V, axis=1)
-    AXIS[0].plot(MEAN_V, label="Q-Learning")
-    AXIS[1].plot(REWARDS, label="Q-Learning")
+    _, REWARDS = AGENT_QLE.fit(True, trajectory=True)
+    AXIS[0].plot(REWARDS, label="Q-Learning")
 
-    REWARDS, LOSS = REINFORCE.fit()
-    AXIS[1].plot(REWARDS, label="reinforce")
-    AXIS[2].plot(LOSS, label="reinforce")
+    make_gif_trajectory(BOARD, AGENT_QLE.trajectory[-100:], "Q-learning.gif")
 
-    V, REWARDS, LOSS = DQL.fit(True)
+    REWARDS, LOSS = REINFORCE.fit(trajectory=True)
+    AXIS[0].plot(REWARDS, label="reinforce")
+    AXIS[1].plot(LOSS, label="reinforce")
 
-    AXIS[0].plot(V, label="Deep Q-Learning")
-    AXIS[0].set_title('Agent V function')
+    make_gif_trajectory(BOARD, REINFORCE.trajectory[-100:], "reinforce.gif")
+
+    AXIS[0].set_title('Agent accumulated rewards')
     AXIS[0].set_xlabel('nb iteration')
-    AXIS[0].set_ylabel('V mean of V')
+    AXIS[0].set_ylabel('accumulated rewards')
     AXIS[0].legend()
-
-    AXIS[1].plot(REWARDS, label="Deep Q-Learning")
-    AXIS[1].set_title('Agent accumulated rewards')
+    AXIS[1].set_title('Agent loss')
     AXIS[1].set_xlabel('nb iteration')
-    AXIS[1].set_ylabel('accumulated rewards')
+    AXIS[1].set_ylabel('loss')
     AXIS[1].legend()
 
-    AXIS[2].plot(LOSS, label="Deep Q-Learning")
-    AXIS[2].set_title('Agent loss')
-    AXIS[2].set_xlabel('nb iteration')
-    AXIS[2].set_ylabel('loss')
-    AXIS[2].legend()
+    plt.show()
+
+    FIGURE, AXIS = plt.subplots(nrows=2, ncols=1)
+    FIGURE.suptitle("Deep algorithms comparison")
+    FIGURE.tight_layout(h_pad=3, w_pad=3)
+
+
+    _, REWARDS = AGENT_QLE.fit(True, trajectory=True)
+
+    AXIS[0].plot(REWARDS, label="Q-Learning")
+
+    REWARDS, LOSS = DQL.fit(True, trajectory=True)
+    AXIS[0].plot(REWARDS, label="Deep Q-Learning")
+    AXIS[1].plot(LOSS, label="Deep Q-Learning")
+
+    make_gif_trajectory(BOARD, DQL.trajectory[-100:], "Deep Q-learning.gif")
+
+    AXIS[0].set_title('Agent accumulated rewards')
+    AXIS[0].set_xlabel('nb iteration')
+    AXIS[0].set_ylabel('accumulated rewards')
+    AXIS[0].legend()
+    AXIS[1].set_title('Agent loss')
+    AXIS[1].set_xlabel('nb iteration')
+    AXIS[1].set_ylabel('loss')
+    AXIS[1].legend()
 
     plt.show()

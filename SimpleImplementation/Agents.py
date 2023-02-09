@@ -82,8 +82,8 @@ class NStepSarsa:
     Contrary to the RL book it use a queue to store the trajectory. It's more efficient that an array
     """
 
-    def __init__(self, environment, policy, alpha=0.1, gamma=0.1,
-                 episodes=1000, steps=4):
+    def __init__(self, environment, policy, alpha=0.2, gamma=0.5,
+                 episodes=1000, steps=2):
         self.environment = environment
         self.a = alpha
         self.gamma = gamma

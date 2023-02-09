@@ -57,7 +57,7 @@ class Evaluator:
 
 if __name__ == '__main__':
 
-    DUMMY_ENV = EnvironmentDummy.DummyEnv(nb_max_actions=1000, replace_charlie=False, deep=True)
+    DUMMY_ENV = EnvironmentDummy.DummyEnv(nb_max_actions=1000, replace_charlie=True, deep=True)
     DUMMY_ENV.init_env()
 
     plt.imshow(DUMMY_ENV.render_board_img())
@@ -65,9 +65,11 @@ if __name__ == '__main__':
 
     EVALUATOR = Evaluator()
     EVALUATOR.evaluate(Reinforce(DUMMY_ENV, episodes=1000, n_inputs=5), "Reinforce")
-    DUMMY_ENV.get_gif_trajectory("simple_implementation.gif")
+    DUMMY_ENV.get_gif_trajectory("reinforce.gif")
     DUMMY_ENV.deep = False
-    EVALUATOR.evaluate(QLearning(DUMMY_ENV, E_Greedy(0.05), episodes=1000), "Q-Learning")
-    EVALUATOR.evaluate(MonteCarloOnPolicy(DUMMY_ENV, E_Greedy(0.05), episodes=1000), "Monte Carlo")
-    EVALUATOR.evaluate(NStepSarsa(DUMMY_ENV, E_Greedy(0.05), episodes=1000), "N-Step Sarsa")
+    EVALUATOR.evaluate(QLearning(DUMMY_ENV, E_Greedy(0.2), gamma=0.3, alpha=0.3, episodes=1000), "Q-Learning")
+
+    #EVALUATOR.evaluate(MonteCarloOnPolicy(DUMMY_ENV, E_Greedy(0.2), gamma=0.5, episodes=4000), "Monte Carlo")
+    #EVALUATOR.evaluate(NStepSarsa(DUMMY_ENV, E_Greedy(0.2), episodes=4000, gamma=0.5, steps=5), "N-Step Sarsa 5-step")
+    DUMMY_ENV.get_gif_trajectory("simple_implementation.gif")
     EVALUATOR.show()

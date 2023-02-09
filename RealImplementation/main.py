@@ -36,12 +36,12 @@ class Evaluator:
         self.axs[0][0].set_ylabel('rewards')
 
         self.axs[1][0].plot(nb_action, label="total")
-        self.axs[1][0].plot(effective_action, label="effective")
+        self.axs[1][0].plot(effective_action, label="at max zoom")
         self.axs[1][0].set_title('Number of actions took during the episode')
         self.axs[1][0].set_xlabel('nb iteration')
         self.axs[1][0].set_ylabel('nb step')
 
-        base = np.linspace(0.,1, len(good))
+        base = np.linspace(0., 1, len(good))
         self.axs[1][1].plot(base, good, label=name, color='g')
         self.axs[1][1].plot(base, bad, label=name, color='r')
         self.axs[1][1].fill_between(base, bad, good, color='g', alpha=.5)
@@ -57,10 +57,13 @@ class Evaluator:
 
     def evaluate(self, agent, name):
         rewards, nb_action, good, bad, conventional, time, effective_action = agent.exploit()
+        mean = np.mean(np.array(time) / np.array(nb_action))
         if len(conventional) > 0:
             self.axs[1][0].plot(conventional, label="conventional policy")
-            time_conventional = np.array(conventional) * np.mean(np.array(time) / np.array(nb_action))
+            time_conventional = 0.5 * np.array(conventional)
             self.axs[0][1].plot(time_conventional, label="conventional policy")
+
+        time_sim = np.array(nb_action) * mean + np.array(effective_action) * 0.5
 
         self.fig.suptitle("hyper parameters selections for {0}".format(name))
 
@@ -74,7 +77,7 @@ class Evaluator:
         self.axs[1][0].set_xlabel('nb iteration')
         self.axs[1][0].set_ylabel('nb step')
 
-        self.axs[0][1].plot(time, label=name)
+        self.axs[0][1].plot(time_sim, label=name)
         self.axs[0][1].set_title('Time take for one episode')
         self.axs[0][1].set_xlabel('nb iteration')
         self.axs[0][1].set_ylabel('time')
@@ -105,10 +108,10 @@ if __name__ == '__main__':
     # Initialise the environment
     # ------------------------------------------------------------------------------------------------------------------
 
-    ENVIRONMENT = environment.Environment("../../Dataset_waldo", difficulty=2)
+    ENVIRONMENT = environment.Environment("../../Dataset_waldo", difficulty=1)
     ENVIRONMENT.init_env()
     EVALUATOR = Evaluator()
-    PG = PolicyGradient(ENVIRONMENT, episodes=200, val_episode=50)
+    PG = PolicyGradient(ENVIRONMENT, episodes=500, val_episode=50)
     DUMMY = DummyAgent(ENVIRONMENT, val_episode=50)
 
     # ------------------------------------------------------------------------------------------------------------------
@@ -116,7 +119,7 @@ if __name__ == '__main__':
     # ------------------------------------------------------------------------------------------------------------------
 
     EVALUATOR.init_plot()
-    EVALUATOR.fit(PG, "Reinforce")
+    EVALUATOR.fit(PG, "RTS")
     EVALUATOR.show()
 
     # ------------------------------------------------------------------------------------------------------------------
@@ -126,7 +129,7 @@ if __name__ == '__main__':
     EVALUATOR.init_plot()
     EVALUATOR.evaluate(DUMMY, "Dummy agent")
     ENVIRONMENT.evaluation_mode = True
-    EVALUATOR.evaluate(PG, "Reinforce")
+    EVALUATOR.evaluate(PG, "RTS")
     EVALUATOR.show_eval()
 
     fig = plt.figure()

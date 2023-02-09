@@ -27,7 +27,8 @@ class E_Greedy_DRL:
         :param state: state in which the agent is.
         :return: the chosen action
         """
-        if np.random.binomial(1, self.e):
+        p = random.random()
+        if p < self.e:
             return random.randrange(self.agent.nb_action)
         return np.argmax(Q)
 

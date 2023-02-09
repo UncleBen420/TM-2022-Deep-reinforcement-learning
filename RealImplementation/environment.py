@@ -11,7 +11,7 @@ import numpy as np
 import gc
 from matplotlib import pyplot as plt
 
-MODEL_RES = 100
+MODEL_RES = 64
 HIST_RES = 255
 ZOOM_DEPTH = 4
 
@@ -196,9 +196,7 @@ class Environment:
             self.place_charlie()
 
         self.current_node = Tree(self.full_img, (0, 0, 0), -1, self.nb_actions_taken)
-        S = self.current_node.get_state()
-
-        return S
+        return self.current_node.get_state()
 
     def init_env(self):
         """
@@ -285,19 +283,24 @@ class Environment:
         self.heat_map[ZOOM_DEPTH + 1 - z][y:window + y, x: window + x] += 1
         self.V_map[ZOOM_DEPTH + 1 - z][y:window + y, x: window + x] = V
 
-    def follow_policy(self, probs, V):
-        A = np.random.choice(self.action_space, p=probs)
-        p = probs[A]
-        probs[A] = 0.
-        giveaway = p / (np.count_nonzero(probs) + 0.00000001)
-        probs[probs != 0.] += giveaway
+    def follow_policy(self, probs):
+        p = random.random()
+        if p < 0.1:
+            idx = np.where(probs > -1000.)[0]
+            A = random.choice(idx)
+        else:
+            A = np.argmax(probs)
+
+        V = probs[A]
+        probs[A] = -1000.
         self.current_node.proba = probs
         self.current_node.V = V
         return A
 
-    def exploit(self, probs, V):
+    def exploit(self, probs):
         A = np.argmax(probs)
-        probs[A] = 0.
+        V = probs[A]
+        probs[A] = -1000.
         self.current_node.proba = probs
         self.current_node.V = V
         return A
@@ -370,7 +373,7 @@ class Environment:
 
         S_prime = self.current_node.get_state()
 
-        return S_prime, reward, is_terminal, node_info, (self.current_node.proba, self.current_node.V)
+        return S_prime, reward, is_terminal, node_info, self.current_node.proba
 
     def get_gif_trajectory(self, name):
         """

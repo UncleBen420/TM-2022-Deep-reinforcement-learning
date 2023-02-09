@@ -15,7 +15,7 @@ class Reinforce:
     """
 
     def __init__(self, environment, n_inputs, n_actions=4, n_hidden_nodes=128, learning_rate=0.0001,
-                 episodes=100, gamma=0.01, dataset_max_size=4, entropy_coef=0.2):
+                 episodes=100, patience=100, gamma=0.01, dataset_max_size=4, entropy_coef=0.2):
         # description of the deep neural model used by the agent
         self.model = torch.nn.Sequential(
             torch.nn.Linear(n_inputs, n_hidden_nodes),
@@ -29,6 +29,7 @@ class Reinforce:
         self.gamma = gamma
         self.environment = environment
         self.episodes = episodes
+        self.patience = patience
         self.dataset_max_size = dataset_max_size
         self.entropy_coef = entropy_coef
         self.min_r = environment.min_reward
@@ -59,7 +60,7 @@ class Reinforce:
         """
         return (x - self.min_r) / (self.max_r - self.min_r)
 
-    def fit(self):
+    def fit(self, trajectory):
         """
         This method will run the learning process over n episode
         :return: the rewards per episode and the loss per episode.
@@ -68,6 +69,9 @@ class Reinforce:
         losses = []
         rewards = []
         dataset = []
+
+        if trajectory:
+            self.trajectory = []
 
         with tqdm(range(self.episodes), unit="episode") as episode:
             for _ in episode:
@@ -78,10 +82,13 @@ class Reinforce:
                 S = 0  # initial state
                 nb_step = 0
 
-                for _ in range(1000):
+                for _ in range(self.patience):
                     Sv = self.environment.get_env_vision(S)
                     # casting to torch tensor
                     Sv = torch.from_numpy(Sv).float()
+
+                    if trajectory:
+                        self.trajectory.append(S)
 
                     with torch.no_grad():
                         action_probs = self.predict(Sv).detach().numpy()

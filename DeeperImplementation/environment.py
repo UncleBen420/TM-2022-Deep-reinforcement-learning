@@ -184,6 +184,7 @@ class DummyEnv:
         a single array.
         :return: the current state.
         """
+
         return np.append(self.sub_vision.squeeze(), self.hist.squeeze())
 
     def take_action(self, action):
@@ -250,30 +251,29 @@ class DummyEnv:
         self.compute_hist()
         self.nb_actions_taken += 1
 
-        if self.guided and not action == Action.MARK and should_have_mark:
-            action = Action.MARK
-        elif action == Action.MARK and should_have_mark:
-            self.marked_correctly = True
-
-        reward = - (self.get_distance_reward() / self.max_distance)
-        #reward = -1
+        #reward = - (self.get_distance_reward() / self.max_distance)
+        reward = 0
 
         is_terminal = self.nb_max_actions <= self.nb_actions_taken
 
         if action == Action.MARK:
             self.nb_mark += 1
-            if should_have_mark:
-                is_terminal = True
-                reward += 100
 
-                if self.replace_env:
-                    self.init_env()
-                elif self.replace_charlie:
-                    self.place_charlie()
+        if should_have_mark:
+            if action == Action.MARK:
+                reward = 1
+                self.marked_correctly = True
             else:
-                reward -= 10
+                reward = 0.2
 
-        return self.get_current_state_deep(), reward, is_terminal, action.value
+            is_terminal = True
+
+            if self.replace_env:
+                self.init_env()
+            elif self.replace_charlie:
+                self.place_charlie()
+
+        return self.get_current_state_deep(), reward, is_terminal
 
     def render_board_img(self):
         """

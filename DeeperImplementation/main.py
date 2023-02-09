@@ -70,4 +70,4 @@ if __name__ == '__main__':
     evaluator.show()
     plt.imshow(de.heat_map)
     plt.show()
-    de.get_gif_trajectory("haha.gif")
+    de.get_gif_trajectory("reinforce_deep.gif")

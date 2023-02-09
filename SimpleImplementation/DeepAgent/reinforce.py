@@ -14,14 +14,12 @@ class Reinforce:
     This file contain an implementation of monte carlo policy gradient (Reinforce).
     """
 
-    def __init__(self, environment, n_inputs, n_actions=7, n_hidden_nodes=128, learning_rate=0.001,
+    def __init__(self, environment, n_inputs, n_actions=7, n_hidden_nodes=64, learning_rate=0.001,
                  episodes=100, gamma=0.01, dataset_max_size=4, entropy_coef=0.1):
 
         # description of the deep neural network.
         self.model = torch.nn.Sequential(
             torch.nn.Linear(n_inputs, n_hidden_nodes),
-            torch.nn.ReLU(),
-            torch.nn.Linear(n_hidden_nodes, n_hidden_nodes),
             torch.nn.ReLU(),
             torch.nn.Linear(n_hidden_nodes, n_actions),
             torch.nn.Softmax(dim=-1)
@@ -123,8 +121,8 @@ class Reinforce:
                 S_batch = torch.stack(S_batch)
                 A_batch = torch.LongTensor(A_batch)
                 G_batch = torch.FloatTensor(G_batch)
-                self.min_r = min(torch.min(G_batch), self.min_r)
-                self.max_r = max(torch.max(G_batch), self.max_r)
+                self.min_r = torch.min(G_batch)
+                self.max_r = torch.max(G_batch)
                 G_batch = self.minmax_scaling(G_batch)
 
                 dataset.append((sum_episode_reward, (S_batch, A_batch, G_batch)))
@@ -144,10 +142,7 @@ class Reinforce:
                     selected_logprobs = G * torch.gather(logprob, 1, A.unsqueeze(1)).squeeze()
                     policy_loss = - selected_logprobs.mean()
 
-                    entropy = Categorical(probs=logprob).entropy()
-                    entropy_loss = - entropy.mean()
-
-                    loss = policy_loss + self.entropy_coef * entropy_loss
+                    loss = policy_loss
 
                     # Calculate gradients
                     loss.backward()
