@@ -1,21 +1,16 @@
-import random
 import time
-
 import numpy as np
 import torch
-from matplotlib import pyplot as plt
 from torch import nn
-from torch.autograd import Variable
-from torch.autograd.grad_mode import F
 from torch.optim.lr_scheduler import StepLR
-from torch.distributions import Categorical
-from torchvision import models
-from torchvision import transforms
 from tqdm import tqdm
 
 
 class PolicyNet(nn.Module):
-    def __init__(self, img_res=100, n_hidden_nodes=64, n_kernels=32):
+    """
+    Class implementing a Q-Net
+    """
+    def __init__(self, img_res=100):
         super(PolicyNet, self).__init__()
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -56,11 +51,21 @@ class PolicyNet(nn.Module):
         self.head.apply(self.init_weights)
 
     def init_weights(self, m):
+        """
+        Init the model weight
+        :param m:
+        :return:
+        """
         if isinstance(m, nn.Linear):
             torch.nn.init.xavier_uniform_(m.weight)
             m.bias.data.fill_(0.01)
 
     def prepare_data(self, state):
+        """
+        prepare the state given by the environment in a format that the Policy net can accept.
+        :param state: state given by the environment.
+        :return: a tensor of shape (batch, sequence, channel, width, high)
+        """
         img = state.permute(0, 3, 1, 2)
         patches = img.unfold(1, 3, 3).unfold(2, self.sub_img_res, self.sub_img_res).unfold(3, self.sub_img_res,
                                                                                            self.sub_img_res)
@@ -69,11 +74,19 @@ class PolicyNet(nn.Module):
         return patches
 
     def forward(self, state):
+        """
+        forward method
+        :param state: the prepared state
+        :return: the Q predicted
+        """
         x = self.backbone(state)
         return self.head(x)
 
 
 class PolicyGradient:
+    """
+    A modified version of a policy gradient descent.
+    """
 
     def __init__(self, environment, learning_rate=0.001,
                  episodes=100, val_episode=100, gamma=0.6,
@@ -95,7 +108,10 @@ class PolicyGradient:
         self.scheduler = StepLR(self.optimizer, step_size=100, gamma=lr_gamma)
 
     def update_policy(self):
-
+        """
+        Update the policy Net with steps of the replay memory.
+        :return:
+        """
         if len(self.A_pa_batch) < self.pa_batch_size:
             return 0.
 
@@ -121,6 +137,11 @@ class PolicyGradient:
         return loss.item()
 
     def calculate_advantage_tree(self, rewards):
+        """
+        calculate the discounted reward but in a tree like propagation.
+        :param rewards: the reward received during the episode.
+        :return: return the G.
+        """
         rewards = np.array(rewards)
 
         # calculate the discount rewards
@@ -138,7 +159,10 @@ class PolicyGradient:
         return G.tolist()
 
     def fit(self):
-
+        """
+        train the agent for a certain number of episode.
+        :return: some metrics.
+        """
         # for plotting
         losses = []
         rewards = []
@@ -265,7 +289,10 @@ class PolicyGradient:
         return losses, rewards, nb_action, good_choices, bad_choices, nb_effective_action
 
     def exploit(self):
-
+        """
+        exploit (the agent doesn't learn anymore) on the environment.
+        :return: some metrics.
+        """
         rewards = []
         nb_action = []
         good_choices = []

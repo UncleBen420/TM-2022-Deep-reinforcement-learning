@@ -17,6 +17,9 @@ ZOOM_DEPTH = 4
 
 
 class PriorityQueue(object):
+    """
+    Implementation of a priority queue
+    """
     def __init__(self):
         self.queue = []
 
@@ -25,14 +28,26 @@ class PriorityQueue(object):
 
     # for checking if the queue is empty
     def isEmpty(self):
+        """
+        :return: True if the queue is empty
+        """
         return len(self.queue) == 0
 
     # for inserting an element in the queue
     def append(self, node, rank):
+        """
+        append an element to the queue in respect to the priority
+        :param node: element to be added
+        :param rank: priority of the element
+        """
         self.queue.append([rank, node])
 
     # for popping an element based on Priority
     def pop(self):
+        """
+        delete the first element with respect of the priority and return it.
+        :return: return the element with the most priority.
+        """
         try:
             max_val_i = 0
 
@@ -46,7 +61,10 @@ class PriorityQueue(object):
             exit()
 
 
-class Tree:
+class Node:
+    """
+    Node used in the environment.
+    """
     def __init__(self, img, pos, parent, number):
         x, y, z = pos
         self.number = number
@@ -63,10 +81,19 @@ class Tree:
         self.nb_childs = 0
 
     def get_state(self):
+        """
+        return a state that the agent can use to predict an action.
+        :return: a state in the format of an image
+        """
         return np.array(self.resized_img.squeeze())
 
     def get_child(self, action, number):
-
+        """
+        in function of an action, return a child node.
+        :param action: a number between 0 and 3
+        :param number: the node number of the child
+        :return: the new node
+        """
         self.nb_childs += 1
 
         sub_z = self.z + 1
@@ -90,22 +117,12 @@ class Tree:
         x_ = self.x + (i * w)
         y_ = self.y + (j * h)
 
-        return Tree(self.img[h * j:h + h * j, w * i: w + w * i], (x_, y_, sub_z), self.number, number)
-
-def check_cuda():
-    """
-    check if opencv can use cuda
-    :return: return True if opencv can detect cuda. False otherwise.
-    """
-    cv_info = [re.sub('\s+', ' ', ci.strip()) for ci in cv2.getBuildInformation().strip().split('\n')
-               if len(ci) > 0 and re.search(r'(nvidia*:?)|(cuda*:)|(cudnn*:)', ci.lower()) is not None]
-    return len(cv_info) > 0
+        return Node(self.img[h * j:h + h * j, w * i: w + w * i], (x_, y_, sub_z), self.number, number)
 
 
 class Environment:
     """
-    this class implement a problem where the agent must mark the place where he have found boat.
-    He must not mark place where there is house.
+    this class implement a probleme of "where is Waldo" the agent must find waldo in a minimal amount of steps.
     """
 
     def __init__(self, dataset_path, difficulty=0):
@@ -125,15 +142,10 @@ class Environment:
         self.nb_actions_taken = 0
         self.zoom_padding = 2
         self.nb_action = 4
-        self.cv_cuda = check_cuda()
         self.difficulty = difficulty
         self.charlie = cv2.cvtColor(cv2.imread(os.path.join(dataset_path, "waldo.png")), cv2.COLOR_BGR2RGB)
         self.image_list = sorted(os.listdir(os.path.join(dataset_path, "images")))
         self.mask_list = sorted(os.listdir(os.path.join(dataset_path, "masks")))
-        if self.difficulty > 2:
-            self.validation_image = self.image_list.pop(0)
-            self.validation_mask = self.mask_list.pop(0)
-
         self.dataset_path = dataset_path
         self.evaluation_mode = False
         self.action_space = np.arange(4)
@@ -175,33 +187,19 @@ class Environment:
         self.nb_bad_choice = 0
         self.nb_good_choice = 0
 
-        if self.difficulty == 3:
-            self.init_env()
 
-        elif self.difficulty == 2:
-            del self.full_img
-            nb_rot = random.randint(0, 3)
-            self.full_img = self.base_img[nb_rot].copy()
-            self.mask = self.base_mask[nb_rot].copy()
-
-            self.place_charlie()
-            self.compute_mask_map()
-            self.hist_img = cv2.resize(self.full_img, (HIST_RES, HIST_RES))
-            self.heat_map = np.zeros((ZOOM_DEPTH + 1, HIST_RES, HIST_RES))
-            self.V_map = np.full((ZOOM_DEPTH + 1, HIST_RES, HIST_RES), np.inf)
-
-        elif self.difficulty == 1:
+        if self.difficulty == 1:
             del self.full_img
             self.full_img = self.base_img.copy()
             self.place_charlie()
 
-        self.current_node = Tree(self.full_img, (0, 0, 0), -1, self.nb_actions_taken)
+        self.current_node = Node(self.full_img, (0, 0, 0), -1, self.nb_actions_taken)
         return self.current_node.get_state()
 
     def init_env(self):
         """
-        This method is used to load the image representing the environment to the gpu
-        It place charlie on the image has well
+        This method is used to load the image representing the environment
+        It place charlie on it has well
         """
         del self.full_img
 
@@ -244,19 +242,9 @@ class Environment:
         self.heat_map = np.zeros((ZOOM_DEPTH + 1, HIST_RES, HIST_RES))
         self.V_map = np.full((ZOOM_DEPTH + 1, HIST_RES, HIST_RES), np.inf)
 
-        if self.difficulty == 2:
-            temp_img = []
-            temp_mask = []
-            for rot in range(4):
-                temp_img.append(np.rot90(self.base_img, rot))
-                temp_mask.append(np.rot90(self.base_mask, rot))
-
-            self.base_img = temp_img
-            self.base_mask = temp_mask
-
     def compute_mask_map(self):
         """
-        Compute the sub grid at the agent position given the x, y and z axis.
+        Compute the coordinate at which Waldo can be placed.
         """
         pad = int(self.H / 100)
         h = int(self.H / pad)
@@ -273,6 +261,14 @@ class Environment:
         self.ROI[1, :] *= pad
 
     def record(self, x, y, z, window, V):
+        """
+        record a step in a cubic representation of the agent trajectory.
+        :param x: x coordinate of the agent
+        :param y: y coordinate of the agent
+        :param z: z coordinate (level of zoom) of the agent
+        :param window: size of the window.
+        :param V: State value predicted by the agent.
+        """
         ratio = HIST_RES / self.W
         x *= ratio
         y *= ratio
@@ -283,9 +279,15 @@ class Environment:
         self.heat_map[ZOOM_DEPTH + 1 - z][y:window + y, x: window + x] += 1
         self.V_map[ZOOM_DEPTH + 1 - z][y:window + y, x: window + x] = V
 
-    def follow_policy(self, probs):
+    def follow_policy(self, probs, epsilon=0.1):
+        """
+        Save the Q predicted by the agent in the node and return an action according the e-greedy function.
+        :param epsilon: epsilon factor of the e-greedy function.
+        :param probs: probability given by the agent.
+        :return: an action.
+        """
         p = random.random()
-        if p < 0.1:
+        if p < epsilon:
             idx = np.where(probs > -1000.)[0]
             A = random.choice(idx)
         else:
@@ -298,6 +300,11 @@ class Environment:
         return A
 
     def exploit(self, probs):
+        """
+        Save the Q predicted by the agent in the node and return the action with the most probability.
+        :param probs: probability given by the agent.
+        :return: an action.
+        """
         A = np.argmax(probs)
         V = probs[A]
         probs[A] = -1000.
@@ -315,16 +322,27 @@ class Environment:
             ((y <= self.charlie_y < y + window) or (y <= self.charlie_y + self.charlie.shape[0] < y + window))
 
     def sub_image_contain_roi(self, x, y, window):
+        """
+        return if the agent position is on a position where Waldo can be.
+        :param x: x coordinate of the agent.
+        :param y: y coordinate of the agent.
+        :param window: size of the agent window.
+        :return: True if the agent is on a position where Waldo can be.
+        """
         for i in range(self.ROI.shape[1]):
             if (x <= self.ROI[1][i] <= x * window or x <= self.ROI[1][i] <= x + window)\
                     and \
                     (y <= self.ROI[0][i] <= y + window or y <= self.ROI[0][i] <= y + window):
                 return True
-
         return False
 
     def take_action(self, action):
-
+        """
+        allow the agent to take an action that influence the environment.
+        :param action: action that the agent take
+        :return: next state, reward, if the state is terminal, information on the given state and prior state prediction
+                 if any.
+        """
         reward = 0.
         self.nb_actions_taken += 1
         is_terminal = False
@@ -351,7 +369,6 @@ class Environment:
         y = child.y
         z = child.z
 
-        # Different Checks
         if self.sub_image_contain_roi(x, y, child.img.shape[0]):
             self.nb_good_choice += 1
         else:

@@ -8,4 +8,4 @@ This repository contain the development code for my master thesis. It is split i
 
 - Deeper Implementation: It is still a simulation environment but now deep reinforcement learning agent receive the state has an image.
 
-- Real Implementation: Using the same problematic (Where is Waldo?) the agent is know in a real environment (a real high resolution image).
+- Real Implementation: Using the same problematic (Where is Waldo?) the agent is now in a real environment (a real high resolution image).

@@ -1,12 +1,12 @@
-import random
 import time
-
 import numpy as np
 from tqdm import tqdm
 
 
 class DummyAgent:
-
+    """
+    Class representing an agent that choose is action randomly.
+    """
     def __init__(self, environment, val_episode=10):
 
         self.environment = environment
@@ -14,6 +14,10 @@ class DummyAgent:
         self.action_space = environment.nb_action
 
     def exploit(self):
+        """
+        perform random actions on the environment.
+        :return: some metrics.
+        """
         rewards = []
         nb_action = []
         good_choices = []
